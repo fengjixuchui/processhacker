@@ -55,6 +55,7 @@ VOID PhAddDefaultSettings(
     PhpAddIntegerSetting(L"EnableThemeSupport", L"0");
     PhpAddIntegerSetting(L"EnableTooltipSupport", L"1");
     PhpAddIntegerSetting(L"EnableSecurityAdvancedDialog", L"1");
+    PhpAddIntegerSetting(L"EnableLinuxSubsystemSupport", L"1");
     PhpAddStringSetting(L"EnvironmentTreeListColumns", L"");
     PhpAddStringSetting(L"EnvironmentTreeListSort", L"0,0"); // 0, NoSortOrder
     PhpAddIntegerSetting(L"EnvironmentTreeListFlags", L"0");
@@ -83,6 +84,7 @@ VOID PhAddDefaultSettings(
     PhpAddIntegerSetting(L"HideSignedProcesses", L"0");
     PhpAddIntegerSetting(L"HideWaitingConnections", L"0");
     PhpAddIntegerSetting(L"HighlightingDuration", L"3e8"); // 1000ms
+    PhpAddStringSetting(L"IconGuids", L"");
     PhpAddStringSetting(L"IconSettings", L"1|1");
     PhpAddIntegerSetting(L"IconNotifyMask", L"c"); // PH_NOTIFY_SERVICE_CREATE | PH_NOTIFY_SERVICE_DELETE
     PhpAddIntegerSetting(L"IconProcesses", L"f"); // 15
@@ -170,6 +172,7 @@ VOID PhAddDefaultSettings(
     PhpAddIntegerSetting(L"ThinRows", L"0");
     PhpAddStringSetting(L"ThreadTreeListColumns", L"");
     PhpAddStringSetting(L"ThreadTreeListSort", L"1,2"); // 1, DescendingSortOrder
+    PhpAddIntegerSetting(L"ThreadTreeListFlags", L"0");
     PhpAddStringSetting(L"ThreadStackTreeListColumns", L"");
     PhpAddScalableIntegerPairSetting(L"ThreadStackWindowSize", L"@96|420,400");
     PhpAddStringSetting(L"TokenGroupsListViewColumns", L"");

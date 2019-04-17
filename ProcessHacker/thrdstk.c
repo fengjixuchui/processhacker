@@ -3,7 +3,7 @@
  *   thread stack viewer
  *
  * Copyright (C) 2010-2016 wj32
- * Copyright (C) 2017-2018 dmex
+ * Copyright (C) 2017-2019 dmex
  *
  * This file is part of Process Hacker.
  *
@@ -682,9 +682,10 @@ VOID NTAPI PhpThreadStackContextDeleteProcedure(
 {
     PPH_THREAD_STACK_CONTEXT context = (PPH_THREAD_STACK_CONTEXT)Object;
 
-    PhDereferenceObject(context->StatusMessage);
-    PhDereferenceObject(context->NewList);
-    PhDereferenceObject(context->List);
+    if (context->StatusMessage) PhDereferenceObject(context->StatusMessage);
+    if (context->StatusContent) PhDereferenceObject(context->StatusContent);
+    if (context->NewList) PhDereferenceObject(context->NewList);
+    if (context->List) PhDereferenceObject(context->List);
 
     if (context->ThreadHandle)
         NtClose(context->ThreadHandle);
@@ -819,6 +820,8 @@ INT_PTR CALLBACK PhpThreadStackDlgProc(
 
             PhLoadWindowPlacementFromSetting(NULL, L"ThreadStackWindowSize", hwndDlg);
             PhCenterWindow(hwndDlg, GetParent(hwndDlg));
+
+            PhInitializeWindowTheme(hwndDlg, PhEnableThemeSupport);
 
             if (PhPluginsEnabled)
             {
@@ -983,7 +986,7 @@ BOOLEAN NTAPI PhpWalkThreadStackCallback(
     PhReleaseQueuedLockExclusive(&threadStackContext->StatusLock);
 
     symbol = PhGetSymbolFromAddress(
-       threadStackContext->SymbolProvider,
+        threadStackContext->SymbolProvider,
         (ULONG64)StackFrame->PcAddress,
         NULL,
         NULL,

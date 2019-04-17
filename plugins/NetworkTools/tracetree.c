@@ -48,6 +48,8 @@ VOID NTAPI TracertTreeNodeItemDeleteProcedure(
     {
         if (tracertNode->PingString[i])
             PhDereferenceObject(tracertNode->PingString[i]);
+        if (tracertNode->PingMessage[i])
+            PhDereferenceObject(tracertNode->PingMessage[i]);
     }
 }
 
@@ -191,7 +193,7 @@ VOID DestroyTracertNode(
     _In_ PTRACERT_ROOT_NODE Node
     )
 {
-   PhDereferenceObject(Node);
+    PhDereferenceObject(Node);
 }
 
 PTRACERT_ROOT_NODE AddTracertNode(
@@ -275,8 +277,8 @@ VOID UpdateTracertNodePingText(
     _In_ ULONG Index
     )
 {
-    if (Node->PingStatus[Index] == IP_HOP_LIMIT_EXCEEDED ||
-        Node->PingStatus[Index] == IP_SUCCESS)
+    if (Node->PingStatus[Index] == IP_SUCCESS ||
+        Node->PingStatus[Index] == IP_TTL_EXPIRED_TRANSIT) // IP_HOP_LIMIT_EXCEEDED
     {
         if (Node->PingList[Index])
         {
@@ -298,7 +300,8 @@ VOID UpdateTracertNodePingText(
     }
     else
     {
-        PhInitializeEmptyStringRef(&CellText->Text);
+        Node->PingMessage[Index] = TracertGetErrorMessage(Node->PingStatus[Index]);
+        CellText->Text = PhGetStringRef(Node->PingMessage[Index]);
     }
 }
 

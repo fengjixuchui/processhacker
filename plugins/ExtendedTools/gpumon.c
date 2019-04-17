@@ -3,7 +3,7 @@
  *   GPU monitoring
  *
  * Copyright (C) 2011-2015 wj32
- * Copyright (C) 2016 dmex
+ * Copyright (C) 2016-2018 dmex
  *
  * This file is part of Process Hacker.
  *
@@ -262,7 +262,7 @@ PPH_STRING EtpQueryDeviceProperty(
             FileTimeToLocalFileTime((PFILETIME)buffer, &newFileTime);
             FileTimeToSystemTime(&newFileTime, &systemTime);
 
-            string = PhFormatDateTime(&systemTime);
+            string = PhFormatDate(&systemTime, NULL);
 
             PhFree(buffer);
             return string;

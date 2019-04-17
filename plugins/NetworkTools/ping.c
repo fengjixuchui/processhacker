@@ -49,7 +49,7 @@ NTSTATUS NetworkPingThreadStart(
     };
     //pingOptions.Flags |= IP_FLAG_REVERSE;
 
-    if (icmpRandString = PhCreateStringEx(NULL, PhGetIntegerSetting(SETTING_NAME_PING_SIZE) * 2 + 2))
+    if (icmpRandString = PhCreateStringEx(NULL, PhGetIntegerSetting(SETTING_NAME_PING_SIZE) * sizeof(WCHAR) + sizeof(UNICODE_NULL)))
     {
         PhGenerateRandomAlphaString(icmpRandString->Buffer, (ULONG)icmpRandString->Length / sizeof(WCHAR));
 
@@ -100,7 +100,7 @@ NTSTATUS NetworkPingThreadStart(
 
         icmp6ReplyStruct = (PICMPV6_ECHO_REPLY2)icmpReplyBuffer;
 
-        if (icmp6ReplyStruct->Status == IP_SUCCESS)
+        if (icmpReplyCount > 0 && icmp6ReplyStruct->Status == IP_SUCCESS)
         {
             BOOLEAN icmpPacketSignature = FALSE;
 
@@ -173,7 +173,7 @@ NTSTATUS NetworkPingThreadStart(
 
         icmpReplyStruct = (PICMP_ECHO_REPLY)icmpReplyBuffer;
 
-        if (icmpReplyStruct->Status == IP_SUCCESS)
+        if (icmpReplyCount > 0 && icmpReplyStruct->Status == IP_SUCCESS)
         {
             if (icmpReplyStruct->Address != context->RemoteEndpoint.Address.InAddr.s_addr)
             {

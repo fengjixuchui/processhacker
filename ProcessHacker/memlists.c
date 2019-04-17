@@ -62,7 +62,7 @@ VOID PhShowMemoryListsDialog(
 
     if (!IsWindowVisible(PhMemoryListsWindowHandle))
         ShowWindow(PhMemoryListsWindowHandle, SW_SHOW);
-    else if (IsIconic(PhMemoryListsWindowHandle))
+    else if (IsMinimized(PhMemoryListsWindowHandle))
         ShowWindow(PhMemoryListsWindowHandle, SW_RESTORE);
     else
         SetForegroundWindow(PhMemoryListsWindowHandle);
@@ -175,7 +175,7 @@ INT_PTR CALLBACK PhpMemoryListsDlgProc(
 
             if (NT_SUCCESS(PhOpenProcessToken(NtCurrentProcess(), TOKEN_ADJUST_PRIVILEGES, &tokenHandle)))
             {
-                PhSetTokenPrivilege(tokenHandle, L"SeProfileSingleProcessPrivilege", NULL, SE_PRIVILEGE_ENABLED);
+                PhSetTokenPrivilege2(tokenHandle, SE_PROF_SINGLE_PROCESS_PRIVILEGE, SE_PRIVILEGE_ENABLED);
                 NtClose(tokenHandle);
             }
 
@@ -216,7 +216,11 @@ INT_PTR CALLBACK PhpMemoryListsDlgProc(
                     SYSTEM_MEMORY_LIST_COMMAND command = -1;
 
                     menu = PhCreateEMenu();
-                    PhLoadResourceEMenuItem(menu, PhInstanceHandle, MAKEINTRESOURCE(IDR_EMPTYMEMLISTS), 0);
+                    PhInsertEMenuItem(menu, PhCreateEMenuItem(0, ID_EMPTY_COMBINEMEMORYLISTS, L"&Combine memory lists", NULL, NULL), ULONG_MAX);
+                    PhInsertEMenuItem(menu, PhCreateEMenuItem(0, ID_EMPTY_EMPTYWORKINGSETS, L"Empty &working sets", NULL, NULL), ULONG_MAX);
+                    PhInsertEMenuItem(menu, PhCreateEMenuItem(0, ID_EMPTY_EMPTYMODIFIEDPAGELIST, L"Empty &modified page list", NULL, NULL), ULONG_MAX);
+                    PhInsertEMenuItem(menu, PhCreateEMenuItem(0, ID_EMPTY_EMPTYSTANDBYLIST, L"Empty &standby list", NULL, NULL), ULONG_MAX);
+                    PhInsertEMenuItem(menu, PhCreateEMenuItem(0, ID_EMPTY_EMPTYPRIORITY0STANDBYLIST, L"Empty &priority 0 standby list", NULL, NULL), ULONG_MAX);
 
                     GetClientRect(GetDlgItem(hwndDlg, IDC_EMPTY), &buttonRect);
                     point.x = 0;

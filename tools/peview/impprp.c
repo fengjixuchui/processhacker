@@ -3,7 +3,7 @@
  *   PE viewer
  *
  * Copyright (C) 2010-2011 wj32
- * Copyright (C) 2017-2018 dmex
+ * Copyright (C) 2017-2019 dmex
  *
  * This file is part of Process Hacker.
  *
@@ -22,6 +22,109 @@
  */
 
 #include <peview.h>
+
+PPH_STRING PvpQueryModuleOrdinalName(
+    _In_ PPH_STRING FileName,
+    _In_ USHORT Ordinal
+    )
+{
+    PPH_STRING exportName = NULL;
+    PH_MAPPED_IMAGE mappedImage;
+
+    if (NT_SUCCESS(PhLoadMappedImage(FileName->Buffer, NULL, TRUE, &mappedImage)))
+    {
+        PH_MAPPED_IMAGE_EXPORTS exports;
+        PH_MAPPED_IMAGE_EXPORT_ENTRY exportEntry;
+        PH_MAPPED_IMAGE_EXPORT_FUNCTION exportFunction;
+        ULONG i;
+
+        if (NT_SUCCESS(PhGetMappedImageExports(&exports, &mappedImage)))
+        {
+            for (i = 0; i < exports.NumberOfEntries; i++)
+            {
+                if (
+                    NT_SUCCESS(PhGetMappedImageExportEntry(&exports, i, &exportEntry)) &&
+                    NT_SUCCESS(PhGetMappedImageExportFunction(&exports, NULL, exportEntry.Ordinal, &exportFunction))
+                    )
+                {
+                    if (exportEntry.Ordinal == Ordinal)
+                    {
+                        if (exportEntry.Name)
+                        {
+                            exportName = PhZeroExtendToUtf16(exportEntry.Name);
+
+                            if (exportName->Buffer[0] == '?')
+                            {
+                                PPH_STRING undecoratedName;
+
+                                if (undecoratedName = PhUndecorateSymbolName(PvSymbolProvider, exportName->Buffer))
+                                    PhMoveReference(&exportName, undecoratedName);
+                            }
+                        }
+                        else
+                        {
+                            if (exportFunction.ForwardedName)
+                            {
+                                PPH_STRING forwardName;
+
+                                forwardName = PhZeroExtendToUtf16(exportFunction.ForwardedName);
+
+                                if (forwardName->Buffer[0] == '?')
+                                {
+                                    PPH_STRING undecoratedName;
+
+                                    if (undecoratedName = PhUndecorateSymbolName(PvSymbolProvider, forwardName->Buffer))
+                                        PhMoveReference(&forwardName, undecoratedName);
+                                }
+
+                                PhMoveReference(&exportName, PhFormatString(L"%s (Forwarded)", forwardName->Buffer));
+                                PhDereferenceObject(forwardName);
+                            }
+                            else if (exportFunction.Function)
+                            {
+                                PPH_STRING exportSymbol = NULL;
+                                PPH_STRING exportSymbolName = NULL;
+
+                                if (PhLoadModuleSymbolProvider(
+                                    PvSymbolProvider,
+                                    FileName->Buffer,
+                                    (ULONG64)mappedImage.ViewBase,
+                                    (ULONG)mappedImage.Size
+                                    ))
+                                {
+                                    // Try find the export name using symbols.
+                                    exportSymbol = PhGetSymbolFromAddress(
+                                        PvSymbolProvider,
+                                        (ULONG64)PTR_ADD_OFFSET(mappedImage.ViewBase, exportFunction.Function),
+                                        NULL,
+                                        NULL,
+                                        &exportSymbolName,
+                                        NULL
+                                        );
+                                }
+
+                                if (exportSymbolName)
+                                {
+                                    PhSetReference(&exportName, exportSymbolName);
+                                    PhDereferenceObject(exportSymbolName);
+                                }
+
+                                if (exportSymbol)
+                                    PhDereferenceObject(exportSymbol);
+                            }
+                        }
+
+                        break;
+                    }
+                }
+            }
+        }
+
+        PhUnloadMappedImage(&mappedImage);
+    }
+
+    return exportName;
+}
 
 VOID PvpProcessImports(
     _In_ HWND ListViewHandle,
@@ -52,7 +155,7 @@ VOID PvpProcessImports(
                     else
                         name = PhZeroExtendToUtf16(importDll.Name);
 
-                    PhPrintUInt64(number, ++(*Count)); // HACK
+                    PhPrintUInt32(number, ++(*Count)); // HACK
                     lvItemIndex = PhAddListViewItem(ListViewHandle, MAXINT, number, NULL);
 
                     PhSetListViewSubItem(ListViewHandle, lvItemIndex, 1, name->Buffer);
@@ -80,83 +183,36 @@ VOID PvpProcessImports(
                     }
                     else
                     {
-                        PLDR_DATA_TABLE_ENTRY moduleLdrEntry = NULL;
-                        PVOID moduleExportAddress = NULL;
-                        PVOID importModuleDllBase = NULL;
+                        PPH_STRING exportDllName;
                         PPH_STRING exportOrdinalName = NULL;
-                        PPH_STRING exportSymbolName = NULL;
-                        PPH_STRING baseDirectory;
 
-                        if (baseDirectory = PhGetBaseDirectory(PvFileName))
+                        if (exportDllName = PhConvertUtf8ToUtf16(importDll.Name))
                         {
-                            static DLL_DIRECTORY_COOKIE (WINAPI *AddDllDirectory_I)(
-                                _In_ PCWSTR NewDirectory
-                                );
+                            PPH_STRING filePath;
 
-                            if (AddDllDirectory_I = PhGetDllProcedureAddress(L"kernel32.dll", "AddDllDirectory", 0))
+                            // TODO: Implement ApiSet mappings for exportDllName. (dmex)
+                            // TODO: Add DLL directory to PhSearchFilePath for locating non-system images. (dmex)
+
+                            if (filePath = PhSearchFilePath(exportDllName->Buffer, L".dll"))
                             {
-                                // HACK (dmex)
-                                // Add the parent directory to the search path so we can locate exports from 3rd party binaries.
-                                AddDllDirectory_I(baseDirectory->Buffer);
+                                PhMoveReference(&exportDllName, filePath);
                             }
-                        }
 
-                        if (importModuleDllBase = LoadLibraryA(importDll.Name))
-                        {
-                            moduleLdrEntry = PhFindLoaderEntry(importModuleDllBase, NULL, NULL);
-                            moduleExportAddress = PhGetDllBaseProcedureAddress(importModuleDllBase, NULL, importEntry.Ordinal);
-                            exportOrdinalName = PhGetExportNameFromOrdinal(importModuleDllBase, importEntry.Ordinal);
+                            exportOrdinalName = PvpQueryModuleOrdinalName(exportDllName, importEntry.Ordinal);
+                            PhDereferenceObject(exportDllName);
                         }
 
                         if (exportOrdinalName)
                         {
                             name = PhaFormatString(L"%s (Ordinal %u)", PhGetStringOrEmpty(exportOrdinalName), importEntry.Ordinal);
                             PhSetListViewSubItem(ListViewHandle, lvItemIndex, 2, PhGetString(name));
+                            PhDereferenceObject(exportOrdinalName);
                         }
                         else
                         {
-                            if (moduleLdrEntry && moduleExportAddress)
-                            {
-                                if (PhLoadModuleSymbolProvider(
-                                    PvSymbolProvider,
-                                    moduleLdrEntry->FullDllName.Buffer,
-                                    (ULONG64)importModuleDllBase,
-                                    moduleLdrEntry->SizeOfImage
-                                    ))
-                                {
-                                    exportSymbolName = PhGetSymbolFromAddress(
-                                        PvSymbolProvider,
-                                        (ULONG64)moduleExportAddress,
-                                        NULL,
-                                        NULL,
-                                        NULL,
-                                        NULL
-                                        );
-                                }
-                            }
-
-                            if (exportSymbolName)
-                            {
-                                PH_STRINGREF firstPart;
-                                PH_STRINGREF secondPart;
-
-                                if (PhSplitStringRefAtLastChar(&exportSymbolName->sr, L'!', &firstPart, &secondPart))
-                                    name = PhaFormatString(L"%s (Ordinal %u)", secondPart.Buffer, importEntry.Ordinal);
-                                else
-                                    name = PhaFormatString(L"%s (Ordinal %u)", exportSymbolName->Buffer, importEntry.Ordinal);
-
-                                PhSetListViewSubItem(ListViewHandle, lvItemIndex, 2, name->Buffer);
-                            }
-                            else
-                            {
-                                name = PhaFormatString(L"(Ordinal %u) [??]", importEntry.Ordinal);
-                                PhSetListViewSubItem(ListViewHandle, lvItemIndex, 2, name->Buffer);
-                            }
+                            name = PhaFormatString(L"(Ordinal %u)", importEntry.Ordinal);
+                            PhSetListViewSubItem(ListViewHandle, lvItemIndex, 2, name->Buffer);
                         }
-
-                        PhClearReference(&exportSymbolName);
-                        PhClearReference(&exportOrdinalName);
-                        PhClearReference(&baseDirectory);
                     }
                 }
             }
@@ -223,10 +279,8 @@ INT_PTR CALLBACK PvpPeImportsDlgProc(
             {
                 PPH_LAYOUT_ITEM dialogItem;
 
-                dialogItem = PvAddPropPageLayoutItem(hwndDlg, hwndDlg,
-                    PH_PROP_PAGE_TAB_CONTROL_PARENT, PH_ANCHOR_ALL);
-                PvAddPropPageLayoutItem(hwndDlg, GetDlgItem(hwndDlg, IDC_LIST),
-                    dialogItem, PH_ANCHOR_ALL);
+                dialogItem = PvAddPropPageLayoutItem(hwndDlg, hwndDlg, PH_PROP_PAGE_TAB_CONTROL_PARENT, PH_ANCHOR_ALL);
+                PvAddPropPageLayoutItem(hwndDlg, GetDlgItem(hwndDlg, IDC_LIST), dialogItem, PH_ANCHOR_ALL);
 
                 PvDoPropPageLayout(hwndDlg);
 

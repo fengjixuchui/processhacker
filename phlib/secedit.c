@@ -3,7 +3,7 @@
  *   object security editor
  *
  * Copyright (C) 2010-2016 wj32
- * Copyright (C) 2017-2018 dmex
+ * Copyright (C) 2017-2019 dmex
  *
  * This file is part of Process Hacker.
  *
@@ -54,6 +54,15 @@ static ISecurityInformation2Vtbl PhSecurityInformation_VTable2 =
     PhSecurityInformation2_LookupSids
 };
 
+static ISecurityInformation3Vtbl PhSecurityInformation_VTable3 =
+{
+    PhSecurityInformation3_QueryInterface,
+    PhSecurityInformation3_AddRef,
+    PhSecurityInformation3_Release,
+    PhSecurityInformation3_GetFullResourceName,
+    PhSecurityInformation3_OpenElevatedEditor
+};
+
 static IDataObjectVtbl PhDataObject_VTable =
 {
     PhSecurityDataObject_QueryInterface,
@@ -81,7 +90,7 @@ HPROPSHEETPAGE PhCreateSecurityPage(
     _In_ PWSTR ObjectName,
     _In_ PWSTR ObjectType,
     _In_ PPH_OPEN_OBJECT OpenObject,
-    _In_ PPH_CLOSE_OBJECT CloseObject,
+    _In_opt_ PPH_CLOSE_OBJECT CloseObject,
     _In_opt_ PVOID Context
     )
 {
@@ -111,6 +120,8 @@ static NTSTATUS PhpEditSecurityInformationThread(
 {
     PhSecurityInformation *this = (PhSecurityInformation *)Context;
 
+    // The EditSecurityAdvanced function on Windows 7 doesn't handle the SI_PAGE_TYPE
+    // parameter correctly and also doesn't show the Audit and Owner tabs... (dmex)
     if (WindowsVersion >= WINDOWS_8 && PhGetIntegerSetting(L"EnableSecurityAdvancedDialog"))
         EditSecurityAdvanced(this->WindowHandle, Context, COMBINE_PAGE_ACTIVATION(SI_PAGE_PERM, SI_SHOW_PERM_ACTIVATED));
     else
@@ -129,11 +140,11 @@ static NTSTATUS PhpEditSecurityInformationThread(
  * \param Context A user-defined value to pass to the callback functions.
  */
 VOID PhEditSecurity(
-    _In_ HWND WindowHandle,
+    _In_opt_ HWND WindowHandle,
     _In_ PWSTR ObjectName,
     _In_ PWSTR ObjectType,
     _In_ PPH_OPEN_OBJECT OpenObject,
-    _In_ PPH_CLOSE_OBJECT CloseObject,
+    _In_opt_ PPH_CLOSE_OBJECT CloseObject,
     _In_opt_ PVOID Context
     )
 {
@@ -202,6 +213,8 @@ HRESULT STDMETHODCALLTYPE PhSecurityInformation_QueryInterface(
     _Out_ PVOID *Object
     )
 {
+    PhSecurityInformation *this = (PhSecurityInformation *)This;
+
     if (
         IsEqualIID(Riid, &IID_IUnknown) ||
         IsEqualIID(Riid, &IID_ISecurityInformation)
@@ -219,6 +232,22 @@ HRESULT STDMETHODCALLTYPE PhSecurityInformation_QueryInterface(
 
             info = PhAllocateZero(sizeof(PhSecurityInformation2));
             info->VTable = &PhSecurityInformation_VTable2;
+            info->Context = this;
+            info->RefCount = 1;
+
+            *Object = info;
+            return S_OK;
+        }
+    }
+    else if (IsEqualGUID(Riid, &IID_ISecurityInformation3))
+    {
+        if (WindowsVersion >= WINDOWS_8)
+        {
+            PhSecurityInformation3 *info;
+
+            info = PhAllocateZero(sizeof(PhSecurityInformation3));
+            info->VTable = &PhSecurityInformation_VTable3;
+            info->Context = this;
             info->RefCount = 1;
 
             *Object = info;
@@ -279,7 +308,7 @@ HRESULT STDMETHODCALLTYPE PhSecurityInformation_GetObjectInformation(
     PhSecurityInformation *this = (PhSecurityInformation *)This;
 
     memset(ObjectInfo, 0, sizeof(SI_OBJECT_INFO));
-    ObjectInfo->dwFlags = SI_EDIT_ALL | SI_ADVANCED | SI_MAY_WRITE;
+    ObjectInfo->dwFlags = SI_EDIT_ALL | SI_ADVANCED | (WindowsVersion >= WINDOWS_8 ? SI_VIEW_ONLY : 0);
     ObjectInfo->pszObjectName = PhGetString(this->ObjectName);
 
     if (PhEqualString2(this->ObjectType, L"TokenDefault", TRUE))
@@ -401,6 +430,8 @@ HRESULT STDMETHODCALLTYPE PhSecurityInformation_PropertySheetPageCallback(
     return E_NOTIMPL;
 }
 
+// ISecurityInformation2
+
 HRESULT STDMETHODCALLTYPE PhSecurityInformation2_QueryInterface(
     _In_ ISecurityInformation2 *This,
     _In_ REFIID Riid,
@@ -464,10 +495,12 @@ HRESULT STDMETHODCALLTYPE PhSecurityInformation2_LookupSids(
     _Out_ LPDATAOBJECT *ppdo
     )
 {
+    PhSecurityInformation2 *this = (PhSecurityInformation2 *)This;
     PhSecurityIDataObject *dataObject;
 
     dataObject = PhAllocateZero(sizeof(PhSecurityInformation));
     dataObject->VTable = &PhDataObject_VTable;
+    dataObject->Context = this->Context;
     dataObject->RefCount = 1;
 
     dataObject->SidCount = cSids;
@@ -478,6 +511,84 @@ HRESULT STDMETHODCALLTYPE PhSecurityInformation2_LookupSids(
 
     return S_OK;
 }
+
+// ISecurityInformation3
+
+HRESULT STDMETHODCALLTYPE PhSecurityInformation3_QueryInterface(
+    _In_ ISecurityInformation3 *This,
+    _In_ REFIID Riid,
+    _Out_ PVOID *Object
+    )
+{
+    if (
+        IsEqualIID(Riid, &IID_IUnknown) ||
+        IsEqualIID(Riid, &IID_ISecurityInformation3)
+        )
+    {
+        PhSecurityInformation3_AddRef(This);
+        *Object = This;
+        return S_OK;
+    }
+
+    *Object = NULL;
+    return E_NOINTERFACE;
+}
+
+ULONG STDMETHODCALLTYPE PhSecurityInformation3_AddRef(
+    _In_ ISecurityInformation3 *This
+    )
+{
+    PhSecurityInformation3 *this = (PhSecurityInformation3 *)This;
+
+    this->RefCount++;
+
+    return this->RefCount;
+}
+
+ULONG STDMETHODCALLTYPE PhSecurityInformation3_Release(
+    _In_ ISecurityInformation3 *This
+    )
+{
+    PhSecurityInformation3 *this = (PhSecurityInformation3 *)This;
+
+    this->RefCount--;
+
+    if (this->RefCount == 0)
+    {
+        PhFree(this);
+        return 0;
+    }
+
+    return this->RefCount;
+}
+
+BOOL STDMETHODCALLTYPE PhSecurityInformation3_GetFullResourceName(
+    _In_ ISecurityInformation3 *This,
+    _Outptr_ PWSTR *ppszResourceName
+    )
+{
+    PhSecurityInformation3 *this = (PhSecurityInformation3 *)This;
+
+    if (PhIsNullOrEmptyString(this->Context->ObjectName))
+        *ppszResourceName = PhGetString(this->Context->ObjectType);
+    else
+        *ppszResourceName = PhGetString(this->Context->ObjectName);
+
+    return TRUE;
+}
+
+HRESULT STDMETHODCALLTYPE PhSecurityInformation3_OpenElevatedEditor(
+    _In_ ISecurityInformation3 *This,
+    _In_ HWND hWnd,
+    _In_ SI_PAGE_TYPE uPage
+    )
+{
+    PhSecurityInformation3 *this = (PhSecurityInformation3 *)This;
+
+    return E_NOTIMPL;
+}
+
+// IDataObject
 
 HRESULT STDMETHODCALLTYPE PhSecurityDataObject_QueryInterface(
     _In_ IDataObject *This,
@@ -520,8 +631,7 @@ ULONG STDMETHODCALLTYPE PhSecurityDataObject_Release(
 
     if (this->RefCount == 0)
     {
-        for (ULONG i = 0; i < this->NameCache->Count; i++)
-            PhDereferenceObject(this->NameCache->Items[i]);
+        PhDereferenceObjects(this->NameCache->Items, this->NameCache->Count);
         PhDereferenceObject(this->NameCache);
 
         PhFree(this);
@@ -551,7 +661,6 @@ HRESULT STDMETHODCALLTYPE PhSecurityDataObject_GetData(
         SID_NAME_USE sidNameUse;
 
         memset(&sidInfo, 0, sizeof(SID_INFO));
-
         sidInfo.pSid = this->Sids[i];
 
         if (sidString = PhGetSidFullName(sidInfo.pSid, FALSE, &sidNameUse))
@@ -583,6 +692,12 @@ HRESULT STDMETHODCALLTYPE PhSecurityDataObject_GetData(
         else if (sidString = PhGetAppContainerName(sidInfo.pSid))
         {
             PhMoveReference(&sidString, PhFormatString(L"%s (APP_CONTAINER)", PhGetString(sidString)));
+            sidInfo.pwzCommonName = PhGetString(sidString);
+            PhAddItemList(this->NameCache, sidString);
+        }
+        else if (sidString = PhGetCapabilitySidName(sidInfo.pSid))
+        {
+            PhMoveReference(&sidString, PhFormatString(L"%s (APP_CAPABILITY)", PhGetString(sidString)));
             sidInfo.pwzCommonName = PhGetString(sidString);
             PhAddItemList(this->NameCache, sidString);
         }
@@ -681,7 +796,7 @@ NTSTATUS PhpGetObjectSecurityWithTimeout(
     bufferSize = 0x100;
     buffer = PhAllocate(bufferSize);
     // This is required (especially for File objects) because some drivers don't seem to handle
-    // QuerySecurity properly.
+    // QuerySecurity properly. (wj32)
     memset(buffer, 0, bufferSize);
 
     status = PhCallNtQuerySecurityObjectWithTimeout(
@@ -832,13 +947,17 @@ _Callback_ NTSTATUS PhStdGetObjectSecurity(
 
             allocationLength = SECURITY_DESCRIPTOR_MIN_LENGTH + defaultDacl->DefaultDacl->AclSize;
 
-            securityDescriptor = PhAllocateZero(PAGE_SIZE);
+            securityDescriptor = PhAllocateZero(allocationLength);
             RtlCreateSecurityDescriptor(securityDescriptor, SECURITY_DESCRIPTOR_REVISION);
             RtlSetDaclSecurityDescriptor(securityDescriptor, TRUE, defaultDacl->DefaultDacl, FALSE);
 
             assert(allocationLength == RtlLengthSecurityDescriptor(securityDescriptor));
 
-            *SecurityDescriptor = securityDescriptor;
+            *SecurityDescriptor = PhAllocateCopy(
+                securityDescriptor,
+                RtlLengthSecurityDescriptor(securityDescriptor)
+                );
+            PhFree(securityDescriptor);
         }
 
         if (defaultDacl)

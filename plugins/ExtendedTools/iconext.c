@@ -3,6 +3,7 @@
  *   notification icon extensions
  *
  * Copyright (C) 2011 wj32
+ * Copyright (C) 2016-2019 dmex
  *
  * This file is part of Process Hacker.
  *
@@ -21,13 +22,32 @@
  */
 
 #include "exttools.h"
+#include "etwsys.h"
+#include "gpusys.h"
+#include <toolstatusintf.h>
 
-#define GPU_ICON_ID 1
-#define DISK_ICON_ID 2
-#define NETWORK_ICON_ID 3
-#define GPU_ICON_TEXT_ID 4
-#define DISK_ICON_TEXT_ID 5
-#define NETWORK_ICON_TEXT_ID 6
+typedef enum _ETP_TRAY_ICON_ID
+{
+    ETP_TRAY_ICON_ID_NONE,
+    ETP_TRAY_ICON_ID_GPU,
+    ETP_TRAY_ICON_ID_DISK,
+    ETP_TRAY_ICON_ID_NETWORK,
+    ETP_TRAY_ICON_ID_GPUTEXT,
+    ETP_TRAY_ICON_ID_DISKTEXT,
+    ETP_TRAY_ICON_ID_NETWORKTEXT,
+    ETP_TRAY_ICON_ID_MAXIMUM
+} ETP_TRAY_ICON_ID;
+
+typedef enum _ETP_TRAY_ICON_GUID
+{
+    ETP_TRAY_ICON_GUID_GPU,
+    ETP_TRAY_ICON_GUID_DISK,
+    ETP_TRAY_ICON_GUID_NETWORK,
+    ETP_TRAY_ICON_GUID_GPUTEXT,
+    ETP_TRAY_ICON_GUID_DISKTEXT,
+    ETP_TRAY_ICON_GUID_NETWORKTEXT,
+    ETP_TRAY_ICON_GUID_MAXIMUM
+} ETP_TRAY_ICON_GUID;
 
 VOID EtpGpuIconUpdateCallback(
     _In_ struct _PH_NF_ICON *Icon,
@@ -98,6 +118,78 @@ VOID EtpNetworkTextIconUpdateCallback(
     _In_opt_ PVOID Context
     );
 
+GUID EtpTrayIconGuids[ETP_TRAY_ICON_GUID_MAXIMUM];
+
+VOID EtLoadTrayIconGuids(
+    VOID
+    )
+{
+    PPH_STRING settingsString = NULL;
+    PH_STRINGREF remaining;
+    ULONG i;
+
+    settingsString = PhGetStringSetting(SETTING_NAME_TRAYICON_GUIDS);
+
+    if (PhIsNullOrEmptyString(settingsString))
+    {
+        PH_STRING_BUILDER iconListBuilder;
+        PPH_STRING iconGuid;
+
+        PhInitializeStringBuilder(&iconListBuilder, 100);
+
+        for (i = 0; i < RTL_NUMBER_OF(EtpTrayIconGuids); i++)
+        {
+            PhGenerateGuid(&EtpTrayIconGuids[i]);
+
+            if (iconGuid = PhFormatGuid(&EtpTrayIconGuids[i]))
+            {
+                PhAppendFormatStringBuilder(
+                    &iconListBuilder,
+                    L"%s|",
+                    iconGuid->Buffer
+                    );
+                PhDereferenceObject(iconGuid);
+            }
+        }
+
+        if (iconListBuilder.String->Length != 0)
+            PhRemoveEndStringBuilder(&iconListBuilder, 1);
+
+        PhMoveReference(&settingsString, PhFinalStringBuilderString(&iconListBuilder));
+        PhSetStringSetting2(SETTING_NAME_TRAYICON_GUIDS, &settingsString->sr);
+        PhDereferenceObject(settingsString);
+    }
+    else
+    {
+        remaining = PhGetStringRef(settingsString);
+
+        for (i = 0; i < RTL_NUMBER_OF(EtpTrayIconGuids); i++)
+        {
+            PH_STRINGREF guidPart;
+            UNICODE_STRING guidStringUs;
+            GUID guid;
+
+            if (remaining.Length == 0)
+                continue;
+
+            PhSplitStringRefAtChar(&remaining, '|', &guidPart, &remaining);
+
+            if (guidPart.Length == 0)
+                continue;
+
+            if (!PhStringRefToUnicodeString(&guidPart, &guidStringUs))
+                continue;
+
+            if (!NT_SUCCESS(RtlGUIDFromString(&guidStringUs, &guid)))
+                PhGenerateGuid(&EtpTrayIconGuids[i]);
+            else
+                EtpTrayIconGuids[i] = guid;
+        }
+
+        PhDereferenceObject(settingsString);
+    }
+}
+
 VOID EtRegisterNotifyIcons(
     _In_ PPH_TRAY_ICON_POINTERS Pointers
     )
@@ -110,7 +202,8 @@ VOID EtRegisterNotifyIcons(
     data.MessageCallback = EtpGpuIconMessageCallback;
     Pointers->RegisterTrayIcon(
         PluginInstance,
-        GPU_ICON_ID,
+        ETP_TRAY_ICON_ID_GPU,
+        EtpTrayIconGuids[ETP_TRAY_ICON_GUID_GPU],
         NULL,
         L"&GPU history",
         EtGpuEnabled ? 0 : PH_NF_ICON_UNAVAILABLE,
@@ -121,7 +214,8 @@ VOID EtRegisterNotifyIcons(
     data.MessageCallback = EtpDiskIconMessageCallback;
     Pointers->RegisterTrayIcon(
         PluginInstance,
-        DISK_ICON_ID,
+        ETP_TRAY_ICON_ID_DISK,
+        EtpTrayIconGuids[ETP_TRAY_ICON_GUID_DISK],
         NULL,
         L"&Disk history",
         EtEtwEnabled ? 0 : PH_NF_ICON_UNAVAILABLE,
@@ -132,7 +226,8 @@ VOID EtRegisterNotifyIcons(
     data.MessageCallback = EtpNetworkIconMessageCallback;
     Pointers->RegisterTrayIcon(
         PluginInstance,
-        NETWORK_ICON_ID,
+        ETP_TRAY_ICON_ID_NETWORK,
+        EtpTrayIconGuids[ETP_TRAY_ICON_GUID_NETWORK],
         NULL,
         L"&Network history",
         EtEtwEnabled ? 0 : PH_NF_ICON_UNAVAILABLE,
@@ -143,7 +238,8 @@ VOID EtRegisterNotifyIcons(
     data.MessageCallback = EtpGpuIconMessageCallback;
     Pointers->RegisterTrayIcon(
         PluginInstance,
-        GPU_ICON_TEXT_ID,
+        ETP_TRAY_ICON_ID_GPUTEXT,
+        EtpTrayIconGuids[ETP_TRAY_ICON_GUID_GPUTEXT],
         NULL,
         L"&GPU usage (Text)",
         EtGpuEnabled ? 0 : PH_NF_ICON_UNAVAILABLE,
@@ -154,7 +250,8 @@ VOID EtRegisterNotifyIcons(
     data.MessageCallback = EtpDiskIconMessageCallback;
     Pointers->RegisterTrayIcon(
         PluginInstance,
-        DISK_ICON_TEXT_ID,
+        ETP_TRAY_ICON_ID_DISKTEXT,
+        EtpTrayIconGuids[ETP_TRAY_ICON_GUID_DISKTEXT],
         NULL,
         L"&Disk usage (Text)",
         EtEtwEnabled ? 0 : PH_NF_ICON_UNAVAILABLE,
@@ -165,7 +262,8 @@ VOID EtRegisterNotifyIcons(
     data.MessageCallback = EtpNetworkIconMessageCallback;
     Pointers->RegisterTrayIcon(
         PluginInstance,
-        NETWORK_ICON_TEXT_ID,
+        ETP_TRAY_ICON_ID_NETWORKTEXT,
+        EtpTrayIconGuids[ETP_TRAY_ICON_GUID_NETWORKTEXT],
         NULL,
         L"&Network usage (Text)",
         EtEtwEnabled ? 0 : PH_NF_ICON_UNAVAILABLE,
@@ -757,4 +855,341 @@ VOID EtpNetworkTextIconUpdateCallback(
 
     *NewText = PhFormat(format, maxNetworkProcessItem ? 6 : 4, 128);
     if (maxNetworkProcessItem) PhDereferenceObject(maxNetworkProcessItem);
+}
+
+// Toolbar graphs
+
+TOOLSTATUS_GRAPH_MESSAGE_CALLBACK_DECLARE(EtpToolbarGpuHistoryGraphMessageCallback)
+{
+    switch (Header->code)
+    {
+    case GCN_GETDRAWINFO:
+        {
+            PPH_GRAPH_GETDRAWINFO getDrawInfo = (PPH_GRAPH_GETDRAWINFO)Header;
+            PPH_GRAPH_DRAW_INFO drawInfo = getDrawInfo->DrawInfo;
+
+            drawInfo->Flags = PH_GRAPH_USE_GRID_X;
+            PhSiSetColorsGraphDrawInfo(drawInfo, PhGetIntegerSetting(L"ColorCpuKernel"), 0);
+
+            if (ProcessesUpdatedCount < 2)
+                return;
+
+            PhGraphStateGetDrawInfo(GraphState, getDrawInfo, EtGpuNodeHistory.Count);
+
+            if (!GraphState->Valid)
+            {
+                PhCopyCircularBuffer_FLOAT(&EtGpuNodeHistory, GraphState->Data1, drawInfo->LineDataCount);
+
+                GraphState->Valid = TRUE;
+            }
+        }
+        break;
+    case GCN_GETTOOLTIPTEXT:
+        {
+            PPH_GRAPH_GETTOOLTIPTEXT getTooltipText = (PPH_GRAPH_GETTOOLTIPTEXT)Header;
+
+            if (getTooltipText->Index < getTooltipText->TotalCount)
+            {
+                if (GraphState->TooltipIndex != getTooltipText->Index)
+                {
+                    FLOAT gpu;
+
+                    gpu = PhGetItemCircularBuffer_FLOAT(&EtGpuNodeHistory, getTooltipText->Index);
+
+                    PhMoveReference(&GraphState->TooltipText, PhFormatString(
+                        L"%.2f%%%s\n%s",
+                        gpu * 100,
+                        PhGetStringOrEmpty(EtpGetMaxNodeString(getTooltipText->Index)),
+                        ((PPH_STRING)PH_AUTO(PhGetStatisticsTimeString(NULL, getTooltipText->Index)))->Buffer
+                        ));
+                }
+
+                getTooltipText->Text = PhGetStringRef(GraphState->TooltipText);
+            }
+        }
+        break;
+    case GCN_MOUSEEVENT:
+        {
+            PPH_GRAPH_MOUSEEVENT mouseEvent = (PPH_GRAPH_MOUSEEVENT)Header;
+            PPH_PROCESS_RECORD record;
+
+            record = NULL;
+
+            if (mouseEvent->Message == WM_LBUTTONDBLCLK && mouseEvent->Index < mouseEvent->TotalCount)
+            {
+                record = EtpReferenceMaxNodeRecord(mouseEvent->Index);
+            }
+
+            if (record)
+            {
+                PhShowProcessRecordDialog(PhMainWndHandle, record);
+                PhDereferenceProcessRecord(record);
+            }
+        }
+        break;
+    }
+}
+
+TOOLSTATUS_GRAPH_MESSAGE_CALLBACK_DECLARE(EtpToolbarDiskHistoryGraphMessageCallback)
+{
+    switch (Header->code)
+    {
+    case GCN_GETDRAWINFO:
+        {
+            PPH_GRAPH_GETDRAWINFO getDrawInfo = (PPH_GRAPH_GETDRAWINFO)Header;
+            PPH_GRAPH_DRAW_INFO drawInfo = getDrawInfo->DrawInfo;
+
+            drawInfo->Flags = PH_GRAPH_USE_GRID_X | PH_GRAPH_USE_LINE_2;
+            PhSiSetColorsGraphDrawInfo(drawInfo, PhGetIntegerSetting(L"ColorIoReadOther"), PhGetIntegerSetting(L"ColorIoWrite"));
+
+            if (ProcessesUpdatedCount < 2)
+                return;
+
+            PhGraphStateGetDrawInfo(
+                GraphState,
+                getDrawInfo,
+                EtDiskReadHistory.Count
+                );
+
+            if (!GraphState->Valid)
+            {
+                ULONG i;
+                FLOAT max = 1024 * 1024; // Minimum scaling of 1 MB
+
+                for (i = 0; i < drawInfo->LineDataCount; i++)
+                {
+                    FLOAT data1;
+                    FLOAT data2;
+
+                    GraphState->Data1[i] = data1 =
+                        (FLOAT)PhGetItemCircularBuffer_ULONG(&EtDiskReadHistory, i);
+                    GraphState->Data2[i] = data2 =
+                        (FLOAT)PhGetItemCircularBuffer_ULONG(&EtDiskWriteHistory, i);
+
+                    if (max < data1 + data2)
+                        max = data1 + data2;
+                }
+
+                if (max != 0)
+                {
+                    // Scale the data.
+
+                    PhDivideSinglesBySingle(
+                        GraphState->Data1,
+                        max,
+                        drawInfo->LineDataCount
+                        );
+                    PhDivideSinglesBySingle(
+                        GraphState->Data2,
+                        max,
+                        drawInfo->LineDataCount
+                        );
+                }
+
+                GraphState->Valid = TRUE;
+            }
+        }
+        break;
+    case GCN_GETTOOLTIPTEXT:
+        {
+            PPH_GRAPH_GETTOOLTIPTEXT getTooltipText = (PPH_GRAPH_GETTOOLTIPTEXT)Header;
+
+            if (getTooltipText->Index < getTooltipText->TotalCount)
+            {
+                if (GraphState->TooltipIndex != getTooltipText->Index)
+                {
+                    ULONG64 diskRead;
+                    ULONG64 diskWrite;
+
+                    diskRead = PhGetItemCircularBuffer_ULONG(&EtDiskReadHistory, getTooltipText->Index);
+                    diskWrite = PhGetItemCircularBuffer_ULONG(&EtDiskWriteHistory, getTooltipText->Index);
+
+                    PhMoveReference(&GraphState->TooltipText, PhFormatString(
+                        L"R: %s\nW: %s%s\n%s",
+                        PhaFormatSize(diskRead, ULONG_MAX)->Buffer,
+                        PhaFormatSize(diskWrite, ULONG_MAX)->Buffer,
+                        PhGetStringOrEmpty(EtpGetMaxDiskString(getTooltipText->Index)),
+                        ((PPH_STRING)PH_AUTO(PhGetStatisticsTimeString(NULL, getTooltipText->Index)))->Buffer
+                        ));
+                }
+
+                getTooltipText->Text = PhGetStringRef(GraphState->TooltipText);
+            }
+        }
+        break;
+    case GCN_MOUSEEVENT:
+        {
+            PPH_GRAPH_MOUSEEVENT mouseEvent = (PPH_GRAPH_MOUSEEVENT)Header;
+            PPH_PROCESS_RECORD record;
+
+            record = NULL;
+
+            if (mouseEvent->Message == WM_LBUTTONDBLCLK && mouseEvent->Index < mouseEvent->TotalCount)
+            {
+                record = EtpReferenceMaxDiskRecord(mouseEvent->Index);
+            }
+
+            if (record)
+            {
+                PhShowProcessRecordDialog(PhMainWndHandle, record);
+                PhDereferenceProcessRecord(record);
+            }
+        }
+        break;
+    }
+}
+
+TOOLSTATUS_GRAPH_MESSAGE_CALLBACK_DECLARE(EtpToolbarNetworkHistoryGraphMessageCallback)
+{
+    switch (Header->code)
+    {
+    case GCN_GETDRAWINFO:
+        {
+            PPH_GRAPH_GETDRAWINFO getDrawInfo = (PPH_GRAPH_GETDRAWINFO)Header;
+            PPH_GRAPH_DRAW_INFO drawInfo = getDrawInfo->DrawInfo;
+
+            drawInfo->Flags = PH_GRAPH_USE_GRID_X | PH_GRAPH_USE_LINE_2;
+            PhSiSetColorsGraphDrawInfo(drawInfo, PhGetIntegerSetting(L"ColorIoReadOther"), PhGetIntegerSetting(L"ColorIoWrite"));
+
+            if (ProcessesUpdatedCount < 2)
+                return;
+
+            PhGraphStateGetDrawInfo(
+                GraphState,
+                getDrawInfo,
+                EtNetworkReceiveHistory.Count
+                );
+
+            if (!GraphState->Valid)
+            {
+                ULONG i;
+                FLOAT max = 1024 * 1024; // Minimum scaling of 1 MB
+
+                for (i = 0; i < drawInfo->LineDataCount; i++)
+                {
+                    FLOAT data1;
+                    FLOAT data2;
+
+                    GraphState->Data1[i] = data1 =
+                        (FLOAT)PhGetItemCircularBuffer_ULONG(&EtNetworkReceiveHistory, i);
+                    GraphState->Data2[i] = data2 =
+                        (FLOAT)PhGetItemCircularBuffer_ULONG(&EtNetworkSendHistory, i);
+
+                    if (max < data1 + data2)
+                        max = data1 + data2;
+                }
+
+                if (max != 0)
+                {
+                    // Scale the data.
+
+                    PhDivideSinglesBySingle(
+                        GraphState->Data1,
+                        max,
+                        drawInfo->LineDataCount
+                        );
+                    PhDivideSinglesBySingle(
+                        GraphState->Data2,
+                        max,
+                        drawInfo->LineDataCount
+                        );
+                }
+
+                GraphState->Valid = TRUE;
+            }
+        }
+        break;
+    case GCN_GETTOOLTIPTEXT:
+        {
+            PPH_GRAPH_GETTOOLTIPTEXT getTooltipText = (PPH_GRAPH_GETTOOLTIPTEXT)Header;
+
+            if (getTooltipText->Index < getTooltipText->TotalCount)
+            {
+                if (GraphState->TooltipIndex != getTooltipText->Index)
+                {
+                    ULONG64 networkReceive;
+                    ULONG64 networkSend;
+
+                    networkReceive = PhGetItemCircularBuffer_ULONG(&EtNetworkReceiveHistory, getTooltipText->Index);
+                    networkSend = PhGetItemCircularBuffer_ULONG(&EtNetworkSendHistory, getTooltipText->Index);
+
+                    PhMoveReference(&GraphState->TooltipText, PhFormatString(
+                        L"R: %s\nS: %s%s\n%s",
+                        PhaFormatSize(networkReceive, ULONG_MAX)->Buffer,
+                        PhaFormatSize(networkSend, ULONG_MAX)->Buffer,
+                        PhGetStringOrEmpty(EtpGetMaxNetworkString(getTooltipText->Index)),
+                        ((PPH_STRING)PH_AUTO(PhGetStatisticsTimeString(NULL, getTooltipText->Index)))->Buffer
+                        ));
+                }
+
+                getTooltipText->Text = PhGetStringRef(GraphState->TooltipText);
+            }
+        }
+        break;
+    case GCN_MOUSEEVENT:
+        {
+            PPH_GRAPH_MOUSEEVENT mouseEvent = (PPH_GRAPH_MOUSEEVENT)Header;
+            PPH_PROCESS_RECORD record;
+
+            record = NULL;
+
+            if (mouseEvent->Message == WM_LBUTTONDBLCLK && mouseEvent->Index < mouseEvent->TotalCount)
+            {
+                record = EtpReferenceMaxNetworkRecord(mouseEvent->Index);
+            }
+
+            if (record)
+            {
+                PhShowProcessRecordDialog(PhMainWndHandle, record);
+                PhDereferenceProcessRecord(record);
+            }
+        }
+        break;
+    }
+}
+
+VOID EtRegisterToolbarGraphs(
+    VOID
+    )
+{
+    PPH_PLUGIN toolStatusPlugin;
+    PTOOLSTATUS_INTERFACE ToolStatusInterface = NULL;
+
+    if (toolStatusPlugin = PhFindPlugin(TOOLSTATUS_PLUGIN_NAME))
+    {
+        ToolStatusInterface = PhGetPluginInformation(toolStatusPlugin)->Interface;
+
+        if (ToolStatusInterface->Version < TOOLSTATUS_INTERFACE_VERSION)
+            ToolStatusInterface = NULL;
+    }
+
+    if (ToolStatusInterface)
+    {
+        ToolStatusInterface->RegisterToolbarGraph(
+            PluginInstance,
+            5,
+            L"GPU history",
+            EtGpuEnabled ? 0 : TOOLSTATUS_GRAPH_UNAVAILABLE,
+            NULL,
+            EtpToolbarGpuHistoryGraphMessageCallback
+            );
+
+        ToolStatusInterface->RegisterToolbarGraph(
+            PluginInstance,
+            6,
+            L"Disk history",
+            EtEtwEnabled ? 0 : TOOLSTATUS_GRAPH_UNAVAILABLE,
+            NULL,
+            EtpToolbarDiskHistoryGraphMessageCallback
+            );
+
+        ToolStatusInterface->RegisterToolbarGraph(
+            PluginInstance,
+            7,
+            L"Network history",
+            EtEtwEnabled ? 0 : TOOLSTATUS_GRAPH_UNAVAILABLE,
+            NULL,
+            EtpToolbarNetworkHistoryGraphMessageCallback
+            );
+    }
 }

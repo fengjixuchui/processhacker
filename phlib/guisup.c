@@ -53,10 +53,6 @@ typedef struct _PH_WINDOW_PROPERTY_CONTEXT
     PVOID Context;
 } PH_WINDOW_PROPERTY_CONTEXT, *PPH_WINDOW_PROPERTY_CONTEXT;
 
-_IsImmersiveProcess IsImmersiveProcess_I = NULL;
-_RunFileDlg RunFileDlg = NULL;
-_SHAutoComplete SHAutoComplete_I = NULL;
-
 HFONT PhApplicationFont = NULL;
 HFONT PhTreeWindowFont = NULL;
 PH_INTEGER_PAIR PhSmallIconSize = { 16, 16 };
@@ -76,8 +72,6 @@ VOID PhGuiSupportInitialization(
     )
 {
     HDC hdc;
-    PVOID shell32Handle;
-    PVOID shlwapiHandle;
 
     WindowCallbackHashTable = PhCreateHashtable(
         sizeof(PH_PLUGIN_WINDOW_CALLBACK_REGISTRATION),
@@ -102,14 +96,6 @@ VOID PhGuiSupportInitialization(
         PhGlobalDpi = GetDeviceCaps(hdc, LOGPIXELSY);
         ReleaseDC(NULL, hdc);
     }
-
-    shell32Handle = LoadLibrary(L"shell32.dll");
-    shlwapiHandle = LoadLibrary(L"shlwapi.dll");
-
-    if (WINDOWS_HAS_IMMERSIVE)
-        IsImmersiveProcess_I = PhGetDllProcedureAddress(L"user32.dll", "IsImmersiveProcess", 0);
-    RunFileDlg = PhGetDllBaseProcedureAddress(shell32Handle, NULL, 61);
-    SHAutoComplete_I = PhGetDllBaseProcedureAddress(shlwapiHandle, "SHAutoComplete", 0);
 }
 
 VOID PhSetControlTheme(
@@ -937,7 +923,7 @@ VOID PhSetClipboardString(
     memory = GlobalLock(data);
 
     memcpy(memory, String->Buffer, String->Length);
-    *(PWCHAR)PTR_ADD_OFFSET(memory, String->Length) = 0;
+    *(PWCHAR)PTR_ADD_OFFSET(memory, String->Length) = UNICODE_NULL;
 
     GlobalUnlock(memory);
 
@@ -1407,7 +1393,7 @@ VOID PhEnumChildWindows(
     _In_opt_ HWND WindowHandle,
     _In_ ULONG Limit,
     _In_ PH_CHILD_ENUM_CALLBACK Callback,
-    _In_ PVOID Context
+    _In_opt_ PVOID Context
     )
 {
     HWND childWindow = NULL;
@@ -1497,8 +1483,8 @@ HWND PhGetProcessMainWindowEx(
     else
         PhOpenProcess(&processHandle, PROCESS_QUERY_LIMITED_INFORMATION, ProcessId);
 
-    if (processHandle && IsImmersiveProcess_I)
-        context.IsImmersive = IsImmersiveProcess_I(processHandle);
+    if (processHandle && WINDOWS_HAS_IMMERSIVE && IsImmersiveProcess)
+        context.IsImmersive = IsImmersiveProcess(processHandle);
 
     PhEnumChildWindows(NULL, 0x800, PhpGetProcessMainWindowEnumWindowsProc, &context);
 
@@ -1606,7 +1592,7 @@ static ULONG NTAPI PhpWindowCallbackHashtableHashFunction(
 VOID PhRegisterWindowCallback(
     _In_ HWND WindowHandle,
     _In_ PH_PLUGIN_WINDOW_EVENT_TYPE Type,
-    _In_ PVOID Context
+    _In_opt_ PVOID Context
     )
 {
     PPH_PLUGIN_WINDOW_CALLBACK_REGISTRATION entry;
@@ -1675,4 +1661,73 @@ VOID PhWindowNotifyTopMostEvent(
     }
 
     PhReleaseQueuedLockExclusive(&WindowCallbackListLock);
+}
+
+BOOLEAN PhShowRunFileDialog(
+    _In_ HWND WindowHandle,
+    _In_opt_ HICON WindowIcon,
+    _In_opt_ PWSTR WorkingDirectory,
+    _In_opt_ PWSTR WindowTitle,
+    _In_opt_ PWSTR WindowDescription,
+    _In_ ULONG Flags
+    )
+{
+    BOOL (WINAPI *RunFileDlg_I)(
+        _In_ HWND hwndOwner,
+        _In_opt_ HICON hIcon,
+        _In_opt_ LPCWSTR lpszDirectory,
+        _In_opt_ LPCWSTR lpszTitle,
+        _In_opt_ LPCWSTR lpszDescription,
+        _In_ ULONG uFlags
+        );
+    BOOLEAN result = FALSE;
+    PVOID shell32Handle;
+
+    if (shell32Handle = LoadLibrary(L"shell32.dll"))
+    {
+        if (RunFileDlg_I = PhGetDllBaseProcedureAddress(shell32Handle, NULL, 61))
+        {
+            result = !!RunFileDlg_I(
+                WindowHandle,
+                WindowIcon,
+                WorkingDirectory,
+                WindowTitle,
+                WindowDescription,
+                Flags
+                );
+        }
+
+        FreeLibrary(shell32Handle);
+    }
+
+    return result;
+}
+
+HICON PhGetInternalWindowIcon(
+    _In_ HWND WindowHandle,
+    _In_ UINT Type
+    )
+{
+    static PH_INITONCE initOnce = PH_INITONCE_INIT;
+    static HICON (WINAPI *InternalGetWindowIcon_I)(
+        _In_ HWND WindowHandle,
+        _In_ ULONG Type
+        ) = NULL;
+
+    if (PhBeginInitOnce(&initOnce))
+    {
+        PVOID shell32Handle;
+
+        if (shell32Handle = LoadLibrary(L"shell32.dll"))
+        {
+            InternalGetWindowIcon_I = PhGetDllBaseProcedureAddress(shell32Handle, "InternalGetWindowIcon", 0);
+        }
+
+        PhEndInitOnce(&initOnce);
+    }
+
+    if (!InternalGetWindowIcon_I)
+        return NULL; 
+
+    return InternalGetWindowIcon_I(WindowHandle, Type);;
 }

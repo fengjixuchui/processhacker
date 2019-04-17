@@ -2,7 +2,7 @@
  * Process Hacker Plugins -
  *   Update Checker Plugin
  *
- * Copyright (C) 2016 dmex
+ * Copyright (C) 2016-2019 dmex
  *
  * This file is part of Process Hacker.
  *
@@ -40,7 +40,7 @@ HRESULT CALLBACK CheckingForUpdatesCallbackProc(
             SendMessage(hwndDlg, TDM_SET_PROGRESS_BAR_MARQUEE, TRUE, 1);
 
             PhReferenceObject(context);
-            PhCreateThread2(UpdateCheckThread, context);
+            PhQueueItemWorkQueue(PhGetGlobalWorkQueue(), UpdateCheckThread, context);
         }
         break;
     }
@@ -66,5 +66,5 @@ VOID ShowCheckingForUpdatesDialog(
     config.pszWindowTitle = L"Process Hacker - Updater";
     config.pszMainInstruction = L"Checking for new releases...";
 
-    SendMessage(Context->DialogHandle, TDM_NAVIGATE_PAGE, 0, (LPARAM)&config);
+    TaskDialogNavigatePage(Context->DialogHandle, &config);
 }

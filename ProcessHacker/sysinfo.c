@@ -463,9 +463,8 @@ VOID PhSipOnInitDialog(
         PhSipEnterSectionView(section);
     }
 
-    if (PhGetIntegerSetting(L"MainWindowAlwaysOnTop"))
-        PhSetWindowAlwaysOnTop(PhSipWindow, TRUE);
     PhRegisterWindowCallback(PhSipWindow, PH_PLUGIN_WINDOW_EVENT_TYPE_TOPMOST, NULL);
+    PhInitializeThemeWindowFrame(PhSipWindow);
 
     PhSipOnSize();
     PhSipOnUserMessage(SI_MSG_SYSINFO_UPDATE, 0, 0);
@@ -1465,17 +1464,17 @@ VOID PhSipDefaultDrawPanel(
     {
         if (CurrentView == SysInfoSummaryView)
         {
-            if (Section->GraphHot)
-            {
-                DrawThemeBackground(
-                    ThemeData,
-                    hdc,
-                    TVP_TREEITEM,
-                    TREIS_HOT,
-                    &DrawPanel->Rect,
-                    &DrawPanel->Rect
-                    );
-            }
+            //if (Section->GraphHot)
+            //{
+            //    DrawThemeBackground(
+            //        ThemeData,
+            //        hdc,
+            //        TVP_TREEITEM,
+            //        TREIS_HOT,
+            //        &DrawPanel->Rect,
+            //        &DrawPanel->Rect
+            //        );
+            //}
         }
         else if (CurrentView == SysInfoSectionView)
         {

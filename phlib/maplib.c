@@ -3,6 +3,7 @@
  *   mapped library
  *
  * Copyright (C) 2010 wj32
+ * Copyright (C) 2019 dmex
  *
  * This file is part of Process Hacker.
  *
@@ -100,7 +101,10 @@ NTSTATUS PhInitializeMappedArchive(
     if (!NT_SUCCESS(status))
         return status;
 
-    if (MappedArchive->SecondLinkerMember.Type != LinkerArchiveMemberType)
+    if (
+        MappedArchive->SecondLinkerMember.Type != LinkerArchiveMemberType &&
+        MappedArchive->SecondLinkerMember.Type != NormalArchiveMemberType // NormalArchiveMemberType might not be correct here but set by LLVM compiled libs (dmex)
+        )
         return STATUS_INVALID_PARAMETER;
 
     // Longnames member
@@ -155,7 +159,7 @@ NTSTATUS PhLoadMappedArchive(
 
         if (!NT_SUCCESS(status))
         {
-            NtUnmapViewOfSection(NtCurrentProcess(), MappedArchive->ViewBase);
+            PhUnloadMappedArchive(MappedArchive);
         }
     }
 
@@ -290,14 +294,14 @@ NTSTATUS PhpGetMappedArchiveMemberFromHeader(
         {
             // Longnames member. Set the name to "/".
             Member->NameBuffer[0] = '/';
-            Member->NameBuffer[1] = 0;
+            Member->NameBuffer[1] = ANSI_NULL;
 
             Member->Type = LongnamesArchiveMemberType;
         }
         else
         {
             // Linker member. Set the name to "".
-            Member->NameBuffer[0] = 0;
+            Member->NameBuffer[0] = ANSI_NULL;
 
             Member->Type = LinkerArchiveMemberType;
         }

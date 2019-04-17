@@ -273,7 +273,7 @@ LRESULT CALLBACK PhpPropSheetWndProc(
         break;
     case WM_SIZE:
         {
-            if (!IsIconic(hwnd))
+            if (!IsMinimized(hwnd))
             {
                 PhLayoutManagerLayout(&propSheetContext->LayoutManager);
             }
@@ -459,9 +459,9 @@ BOOLEAN PhPropPageDlgProcHeader(
     _In_ HWND hwndDlg,
     _In_ UINT uMsg,
     _In_ LPARAM lParam,
-    _Out_ LPPROPSHEETPAGE *PropSheetPage,
-    _Out_ PPH_PROCESS_PROPPAGECONTEXT *PropPageContext,
-    _Out_ PPH_PROCESS_ITEM *ProcessItem
+    _Out_opt_ LPPROPSHEETPAGE *PropSheetPage,
+    _Out_opt_ PPH_PROCESS_PROPPAGECONTEXT *PropPageContext,
+    _Out_opt_ PPH_PROCESS_ITEM *ProcessItem
     )
 {
     LPPROPSHEETPAGE propSheetPage;
@@ -624,7 +624,7 @@ NTSTATUS PhpProcessPropertiesThreadStart(
     // Token
     PhAddProcessPropPage2(
         PropContext,
-        PhCreateTokenPage(PhpOpenProcessTokenForPage, (PVOID)PropContext->ProcessItem->ProcessId, PhpProcessTokenHookProc)
+        PhCreateTokenPage(PhpOpenProcessTokenForPage, PropContext->ProcessItem->ProcessId, (PVOID)PropContext->ProcessItem->ProcessId, PhpProcessTokenHookProc)
         );
 
     // Modules

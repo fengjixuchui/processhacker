@@ -47,6 +47,8 @@ VOID PvpProcessElfImports(
         PhSetListViewSubItem(ListViewHandle, lvItemIndex, 2, import->Name);
         PhSetListViewSubItem(ListViewHandle, lvItemIndex, 3, PvpGetSymbolTypeName(import->TypeInfo));
         PhSetListViewSubItem(ListViewHandle, lvItemIndex, 4, PvpGetSymbolBindingName(import->TypeInfo));
+        PhSetListViewSubItem(ListViewHandle, lvItemIndex, 5, PvpGetSymbolVisibility(import->OtherInfo));
+        PhSetListViewSubItem(ListViewHandle, lvItemIndex, 6, PvpGetSymbolSectionName(import->SectionIndex)->Buffer);
     }
 
     PhFreeMappedWslImageSymbols(imports);
@@ -79,8 +81,10 @@ INT_PTR CALLBACK PvpExlfImportsDlgProc(
             PhAddListViewColumn(lvHandle, 2, 2, 2, LVCFMT_LEFT, 210, L"Name");
             PhAddListViewColumn(lvHandle, 3, 3, 3, LVCFMT_LEFT, 100, L"Type");
             PhAddListViewColumn(lvHandle, 4, 4, 4, LVCFMT_LEFT, 80, L"Binding");
+            PhAddListViewColumn(lvHandle, 5, 5, 5, LVCFMT_LEFT, 80, L"Visibility");
+            PhAddListViewColumn(lvHandle, 6, 6, 6, LVCFMT_LEFT, 80, L"Section");
             PhSetExtendedListView(lvHandle);
-            PhLoadListViewColumnsFromSetting(L"ImageImportsListViewColumns", lvHandle);
+            PhLoadListViewColumnsFromSetting(L"ImportsWslListViewColumns", lvHandle);
 
             PvpProcessElfImports(lvHandle);
             ExtendedListView_SortItems(lvHandle);
@@ -90,7 +94,7 @@ INT_PTR CALLBACK PvpExlfImportsDlgProc(
         break;
     case WM_DESTROY:
         {
-            PhSaveListViewColumnsToSetting(L"ImageImportsListViewColumns", GetDlgItem(hwndDlg, IDC_LIST));
+            PhSaveListViewColumnsToSetting(L"ImportsWslListViewColumns", GetDlgItem(hwndDlg, IDC_LIST));
         }
         break;
     case WM_SHOWWINDOW:
@@ -99,10 +103,8 @@ INT_PTR CALLBACK PvpExlfImportsDlgProc(
             {
                 PPH_LAYOUT_ITEM dialogItem;
 
-                dialogItem = PvAddPropPageLayoutItem(hwndDlg, hwndDlg,
-                    PH_PROP_PAGE_TAB_CONTROL_PARENT, PH_ANCHOR_ALL);
-                PvAddPropPageLayoutItem(hwndDlg, GetDlgItem(hwndDlg, IDC_LIST),
-                    dialogItem, PH_ANCHOR_ALL);
+                dialogItem = PvAddPropPageLayoutItem(hwndDlg, hwndDlg, PH_PROP_PAGE_TAB_CONTROL_PARENT, PH_ANCHOR_ALL);
+                PvAddPropPageLayoutItem(hwndDlg, GetDlgItem(hwndDlg, IDC_LIST), dialogItem, PH_ANCHOR_ALL);
 
                 PvDoPropPageLayout(hwndDlg);
 
@@ -113,6 +115,11 @@ INT_PTR CALLBACK PvpExlfImportsDlgProc(
     case WM_NOTIFY:
         {
             PvHandleListViewNotifyForCopy(lParam, GetDlgItem(hwndDlg, IDC_LIST));
+        }
+        break;
+    case WM_CONTEXTMENU:
+        {
+            PvHandleListViewCommandCopy(hwndDlg, lParam, wParam, GetDlgItem(hwndDlg, IDC_LIST));
         }
         break;
     }

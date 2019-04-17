@@ -3,7 +3,7 @@
  *   process provider
  *
  * Copyright (C) 2009-2016 wj32
- * Copyright (C) 2017-2018 dmex
+ * Copyright (C) 2017-2019 dmex
  *
  * This file is part of Process Hacker.
  *
@@ -120,6 +120,7 @@ typedef struct _PH_PROCESS_QUERY_S2_DATA
     BOOLEAN IsPacked;
     ULONG ImportFunctions;
     ULONG ImportModules;
+    PH_IMAGE_VERSION_INFO VersionInfo; // LXSS only
 } PH_PROCESS_QUERY_S2_DATA, *PPH_PROCESS_QUERY_S2_DATA;
 
 typedef struct _PH_SID_FULL_NAME_CACHE_ENTRY
@@ -729,7 +730,7 @@ VOID PhpProcessQueryStage1(
         }
 
         // Version info.
-        PhInitializeImageVersionInfo(&Data->VersionInfo, processItem->FileName->Buffer);
+        PhInitializeImageVersionInfoCached(&Data->VersionInfo, processItem->FileName, FALSE);
     }
 
     // Debugged
@@ -775,7 +776,7 @@ VOID PhpProcessQueryStage1(
                 // can't display them, we'll replace them with spaces.
                 for (ULONG i = 0; i < (ULONG)commandLine->Length / sizeof(WCHAR); i++)
                 {
-                    if (commandLine->Buffer[i] == 0)
+                    if (commandLine->Buffer[i] == UNICODE_NULL)
                         commandLine->Buffer[i] = ' ';
                 }
 
@@ -863,9 +864,9 @@ VOID PhpProcessQueryStage1(
     }
 
     // Immersive
-    if (processHandleLimited && IsImmersiveProcess_I && !processItem->IsSubsystemProcess)
+    if (processHandleLimited && WINDOWS_HAS_IMMERSIVE && IsImmersiveProcess && !processItem->IsSubsystemProcess)
     {
-        Data->IsImmersive = !!IsImmersiveProcess_I(processHandleLimited);
+        Data->IsImmersive = !!IsImmersiveProcess(processHandleLimited);
     }
 
     // Package full name
@@ -937,17 +938,21 @@ VOID PhpProcessQueryStage2(
             Data->ImportFunctions = -1;
         }
     }
+
+    if (PhEnableLinuxSubsystemSupport && processItem->FileName && processItem->IsSubsystemProcess)
+    {
+        PhInitializeImageVersionInfoCached(&Data->VersionInfo, processItem->FileName, TRUE);
+    }
 }
 
 NTSTATUS PhpProcessQueryStage1Worker(
     _In_ PVOID Parameter
     )
 {
-    PPH_PROCESS_QUERY_S1_DATA data;
     PPH_PROCESS_ITEM processItem = (PPH_PROCESS_ITEM)Parameter;
+    PPH_PROCESS_QUERY_S1_DATA data;
 
-    data = PhAllocate(sizeof(PH_PROCESS_QUERY_S1_DATA));
-    memset(data, 0, sizeof(PH_PROCESS_QUERY_S1_DATA));
+    data = PhAllocateZero(sizeof(PH_PROCESS_QUERY_S1_DATA));
     data->Header.Stage = 1;
     data->Header.ProcessItem = processItem;
 
@@ -962,11 +967,10 @@ NTSTATUS PhpProcessQueryStage2Worker(
     _In_ PVOID Parameter
     )
 {
-    PPH_PROCESS_QUERY_S2_DATA data;
     PPH_PROCESS_ITEM processItem = (PPH_PROCESS_ITEM)Parameter;
+    PPH_PROCESS_QUERY_S2_DATA data;
 
-    data = PhAllocate(sizeof(PH_PROCESS_QUERY_S2_DATA));
-    memset(data, 0, sizeof(PH_PROCESS_QUERY_S2_DATA));
+    data = PhAllocateZero(sizeof(PH_PROCESS_QUERY_S2_DATA));
     data->Header.Stage = 2;
     data->Header.ProcessItem = processItem;
 
@@ -1050,6 +1054,12 @@ VOID PhpFillProcessItemStage2(
     processItem->IsPacked = Data->IsPacked;
     processItem->ImportFunctions = Data->ImportFunctions;
     processItem->ImportModules = Data->ImportModules;
+
+    // Note: We query Win32 processes in stage1 so don't overwrite the previous data. (dmex)
+    if (processItem->IsSubsystemProcess)
+    {
+        memcpy(&processItem->VersionInfo, &Data->VersionInfo, sizeof(PH_IMAGE_VERSION_INFO));
+    }
 }
 
 VOID PhpFillProcessItemExtension(
@@ -1084,14 +1094,10 @@ VOID PhpFillProcessItem(
 
     if (PH_IS_REAL_PROCESS_ID(ProcessItem->ProcessId))
     {
-        if (PhEnableHexId)
-            PhPrintUInt32Hex(ProcessItem->ProcessIdString, HandleToUlong(ProcessItem->ProcessId));
-        else
-            PhPrintUInt32(ProcessItem->ProcessIdString, HandleToUlong(ProcessItem->ProcessId));
+        PhPrintUInt32(ProcessItem->ProcessIdString, HandleToUlong(ProcessItem->ProcessId));
+        PhPrintUInt32(ProcessItem->ParentProcessIdString, HandleToUlong(ProcessItem->ParentProcessId));
+        PhPrintUInt32(ProcessItem->SessionIdString, ProcessItem->SessionId);
     }
-
-    PhPrintUInt32(ProcessItem->ParentProcessIdString, HandleToUlong(ProcessItem->ParentProcessId));
-    PhPrintUInt32(ProcessItem->SessionIdString, ProcessItem->SessionId);
 
     // Open a handle to the process for later usage.
     if (PH_IS_REAL_PROCESS_ID(ProcessItem->ProcessId))
@@ -1757,6 +1763,8 @@ VOID PhProcessProviderUpdate(
     {
         if (PhEnablePurgeProcessRecords)
             PhPurgeProcessRecords();
+
+        PhFlushImageVersionInfoCache();
     }
 
     if (!PhProcessStatisticsInitialized)
@@ -2340,11 +2348,11 @@ VOID PhProcessProviderUpdate(
             }
 
             // Immersive
-            if (processItem->QueryHandle && IsImmersiveProcess_I)
+            if (processItem->QueryHandle && WINDOWS_HAS_IMMERSIVE && IsImmersiveProcess)
             {
                 BOOLEAN isImmersive;
 
-                isImmersive = !!IsImmersiveProcess_I(processItem->QueryHandle);
+                isImmersive = !!IsImmersiveProcess(processItem->QueryHandle);
 
                 if (processItem->IsImmersive != isImmersive)
                 {

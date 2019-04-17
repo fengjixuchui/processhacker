@@ -2,7 +2,7 @@
  * Process Hacker -
  *   PE viewer
  *
- * Copyright (C) 2017 dmex
+ * Copyright (C) 2017-2019 dmex
  *
  * This file is part of Process Hacker.
  *
@@ -22,7 +22,7 @@
 
 #include <peview.h>
 #include <mapimg.h>
-#include <uxtheme.h>
+#include <wslsup.h>
 
 PWSTR PvpGetSymbolTypeName(
     _In_ UCHAR TypeInfo
@@ -70,11 +70,52 @@ PWSTR PvpGetSymbolBindingName(
     return L"***ERROR***";
 }
 
+PWSTR PvpGetSymbolVisibility(
+    _In_ UCHAR OtherInfo
+    )
+{
+    switch (ELF_ST_VISIBILITY(OtherInfo))
+    {
+    case STV_DEFAULT:
+        return L"Default";
+    case STV_INTERNAL:
+        return L"Internal";
+    case STV_HIDDEN:
+        return L"Hidden";
+    case STV_PROTECTED:
+        return L"Protected";
+    }
+
+    return L"***ERROR***";
+}
+
+PPH_STRING PvpGetSymbolSectionName(
+    _In_ ULONG Index
+    )
+{
+    switch (Index)
+    {
+    case SHN_UNDEF:
+        return PhCreateString(L"UND");
+    case SHN_ABS:
+        return PhCreateString(L"ABS");
+    case SHN_COMMON:
+        return PhCreateString(L"Common");
+    }
+
+    return PhaFormatUInt64(Index, TRUE);
+}
+
 VOID PvExlfProperties(
     VOID
     )
 {
     PPV_PROPCONTEXT propContext;
+
+    if (!PhExtractIcon(PvFileName->Buffer, &PvImageLargeIcon, &PvImageSmallIcon))
+    {
+        PhGetStockApplicationIcon(&PvImageSmallIcon, &PvImageLargeIcon);
+    }
 
     if (propContext = PvCreatePropContext(PvFileName))
     {
@@ -84,6 +125,14 @@ VOID PvExlfProperties(
         newPage = PvCreatePropPageContext(
             MAKEINTRESOURCE(IDD_ELFGENERAL),
             PvpExlfGeneralDlgProc,
+            NULL
+            );
+        PvAddPropPage(propContext, newPage);
+
+        // Dynamic
+        newPage = PvCreatePropPageContext(
+            MAKEINTRESOURCE(IDD_ELFDYNAMIC),
+            PvpExlfDynamicDlgProc,
             NULL
             );
         PvAddPropPage(propContext, newPage);
@@ -134,6 +183,34 @@ VOID PvExlfProperties(
     }
 }
 
+static NTSTATUS PvpQueryWslImageThreadStart(
+    _In_ PVOID Parameter
+    )
+{
+    HWND windowHandle = Parameter;
+
+    PhInitializeLxssImageVersionInfo(&PvImageVersionInfo, PvFileName);
+
+    PhSetDialogItemText(windowHandle, IDC_NAME, PvpGetStringOrNa(PvImageVersionInfo.FileDescription));
+    PhSetDialogItemText(windowHandle, IDC_COMPANYNAME, PvpGetStringOrNa(PvImageVersionInfo.CompanyName));
+    PhSetDialogItemText(windowHandle, IDC_VERSION, PvpGetStringOrNa(PvImageVersionInfo.FileVersion));
+
+    return STATUS_SUCCESS;
+}
+
+VOID PvpSetWslmageVersionInfo(
+    _In_ HWND WindowHandle
+    )
+{
+    PhSetDialogItemText(WindowHandle, IDC_NAME, L"Loading...");
+    PhSetDialogItemText(WindowHandle, IDC_COMPANYNAME, L"Loading...");
+    PhSetDialogItemText(WindowHandle, IDC_VERSION, L"Loading...");
+
+    PhQueueItemWorkQueue(PhGetGlobalWorkQueue(), PvpQueryWslImageThreadStart, WindowHandle);
+
+    Static_SetIcon(GetDlgItem(WindowHandle, IDC_FILEICON), PvImageLargeIcon);
+}
+
 VOID PvpSetWslImageType(
     _In_ HWND hwndDlg
     )
@@ -142,6 +219,9 @@ VOID PvpSetWslImageType(
 
     switch (PvMappedImage.Header->e_type)
     {
+    case ET_REL:
+        type = L"Relocatable";
+        break;
     case ET_DYN:
         type = L"Dynamic";
         break;
@@ -375,6 +455,7 @@ INT_PTR CALLBACK PvpExlfGeneralDlgProc(
             PhSetExtendedListView(lvHandle);
             PhLoadListViewColumnsFromSetting(L"GeneralWslTreeListColumns", lvHandle);
 
+            PvpSetWslmageVersionInfo(hwndDlg);
             PvpSetWslImageType(hwndDlg);
             PvpSetWslImageMachineType(hwndDlg);
             PvpSetWslImageBase(hwndDlg);
@@ -397,6 +478,9 @@ INT_PTR CALLBACK PvpExlfGeneralDlgProc(
                 PPH_LAYOUT_ITEM dialogItem;
 
                 dialogItem = PvAddPropPageLayoutItem(hwndDlg, hwndDlg, PH_PROP_PAGE_TAB_CONTROL_PARENT, PH_ANCHOR_ALL);
+                PvAddPropPageLayoutItem(hwndDlg, GetDlgItem(hwndDlg, IDC_FILE), dialogItem, PH_ANCHOR_LEFT | PH_ANCHOR_TOP | PH_ANCHOR_RIGHT);
+                PvAddPropPageLayoutItem(hwndDlg, GetDlgItem(hwndDlg, IDC_NAME), dialogItem, PH_ANCHOR_LEFT | PH_ANCHOR_TOP | PH_ANCHOR_RIGHT);
+                PvAddPropPageLayoutItem(hwndDlg, GetDlgItem(hwndDlg, IDC_COMPANYNAME), dialogItem, PH_ANCHOR_LEFT | PH_ANCHOR_TOP | PH_ANCHOR_RIGHT);
                 PvAddPropPageLayoutItem(hwndDlg, GetDlgItem(hwndDlg, IDC_LIST), dialogItem, PH_ANCHOR_ALL);
 
                 PvDoPropPageLayout(hwndDlg);
@@ -408,6 +492,11 @@ INT_PTR CALLBACK PvpExlfGeneralDlgProc(
     case WM_NOTIFY:
         {
             PvHandleListViewNotifyForCopy(lParam, GetDlgItem(hwndDlg, IDC_LIST));
+        }
+        break;
+    case WM_CONTEXTMENU:
+        {
+            PvHandleListViewCommandCopy(hwndDlg, lParam, wParam, GetDlgItem(hwndDlg, IDC_LIST));
         }
         break;
     }

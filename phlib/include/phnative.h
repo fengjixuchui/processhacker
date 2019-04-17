@@ -122,6 +122,15 @@ PhOpenProcessToken(
 PHLIBAPI
 NTSTATUS
 NTAPI
+PhOpenProcessTokenPublic(
+    _In_ HANDLE ProcessHandle,
+    _In_ ACCESS_MASK DesiredAccess,
+    _Out_ PHANDLE TokenHandle
+    );
+
+PHLIBAPI
+NTSTATUS
+NTAPI
 PhGetObjectSecurity(
     _In_ HANDLE Handle,
     _In_ SECURITY_INFORMATION SecurityInformation,
@@ -133,6 +142,14 @@ NTSTATUS
 NTAPI
 PhSetObjectSecurity(
     _In_ HANDLE Handle,
+    _In_ SECURITY_INFORMATION SecurityInformation,
+    _In_ PSECURITY_DESCRIPTOR SecurityDescriptor
+    );
+
+PHLIBAPI
+PPH_STRING
+NTAPI
+PhGetSecurityDescriptorAsString(
     _In_ SECURITY_INFORMATION SecurityInformation,
     _In_ PSECURITY_DESCRIPTOR SecurityDescriptor
     );
@@ -415,6 +432,33 @@ PhGetTokenTrustLevel(
 PHLIBAPI
 NTSTATUS
 NTAPI
+PhGetTokenNamedObjectPath(
+    _In_ HANDLE TokenHandle,
+    _In_opt_ PSID Sid,
+    _Out_ PPH_STRING* ObjectPath
+    );
+
+PHLIBAPI
+NTSTATUS
+NTAPI
+PhGetAppContainerNamedObjectPath(
+    _In_ HANDLE TokenHandle,
+    _In_opt_ PSID AppContainerSid,
+    _In_ BOOLEAN RelativePath,
+    _Out_ PPH_STRING* ObjectPath
+    );
+
+PHLIBAPI
+BOOLEAN
+NTAPI
+PhGetTokenSecurityDescriptorAsString(
+    _In_ HANDLE TokenHandle,
+    _Out_ PPH_STRING* SecurityDescriptorString
+    );
+
+PHLIBAPI
+NTSTATUS
+NTAPI
 PhSetTokenSessionId(
     _In_ HANDLE TokenHandle,
     _In_ ULONG SessionId
@@ -478,6 +522,17 @@ PhGetTokenIntegrityLevel(
 PHLIBAPI
 NTSTATUS
 NTAPI
+PhGetTokenProcessTrustLevelRID(
+    _In_ HANDLE TokenHandle,
+    _Out_opt_ PULONG ProtectionType,
+    _Out_opt_ PULONG ProtectionLevel,
+    _Out_opt_ PPH_STRING* TrustLevelString,
+    _Out_opt_ PPH_STRING* TrustLevelSidString
+    );
+
+PHLIBAPI
+NTSTATUS
+NTAPI
 PhGetFileSize(
     _In_ HANDLE FileHandle,
     _Out_ PLARGE_INTEGER Size
@@ -489,6 +544,13 @@ NTAPI
 PhSetFileSize(
     _In_ HANDLE FileHandle,
     _In_ PLARGE_INTEGER Size
+    );
+
+PHLIBAPI
+NTSTATUS
+NTAPI
+PhDeleteFile(
+    _In_ HANDLE FileHandle
     );
 
 PHLIBAPI
@@ -768,6 +830,12 @@ PhGetKernelFileName(
     sizeof(SYSTEM_THREAD_INFORMATION) * \
     ((PSYSTEM_PROCESS_INFORMATION)(Process))->NumberOfThreads))
 
+#define PH_EXTENDED_PROCESS_EXTENSION(Process) \
+    ((PSYSTEM_PROCESS_INFORMATION_EXTENSION)PTR_ADD_OFFSET((Process), \
+    UFIELD_OFFSET(SYSTEM_PROCESS_INFORMATION, Threads) + \
+    sizeof(SYSTEM_EXTENDED_THREAD_INFORMATION) * \
+    ((PSYSTEM_PROCESS_INFORMATION)(Process))->NumberOfThreads))
+
 PHLIBAPI
 NTSTATUS
 NTAPI
@@ -915,7 +983,7 @@ PhEnumDirectoryObjects(
     );
 
 typedef BOOLEAN (NTAPI *PPH_ENUM_DIRECTORY_FILE)(
-    _In_ PFILE_DIRECTORY_INFORMATION Information,
+    _In_ PVOID Information,
     _In_opt_ PVOID Context
     );
 
@@ -924,6 +992,18 @@ NTSTATUS
 NTAPI
 PhEnumDirectoryFile(
     _In_ HANDLE FileHandle,
+    _In_opt_ PUNICODE_STRING SearchPattern,
+    _In_ PPH_ENUM_DIRECTORY_FILE Callback,
+    _In_opt_ PVOID Context
+    );
+
+PHLIBAPI
+NTSTATUS
+NTAPI
+PhEnumDirectoryFileEx(
+    _In_ HANDLE FileHandle,
+    _In_ FILE_INFORMATION_CLASS FileInformationClass,
+    _In_ BOOLEAN ReturnSingleEntry,
     _In_opt_ PUNICODE_STRING SearchPattern,
     _In_ PPH_ENUM_DIRECTORY_FILE Callback,
     _In_opt_ PVOID Context
@@ -1157,6 +1237,7 @@ PhQueryValueKey(
     );
 
 typedef BOOLEAN (NTAPI *PPH_ENUM_KEY_CALLBACK)(
+    _In_ HANDLE RootDirectory,
     _In_ PKEY_BASIC_INFORMATION Information,
     _In_opt_ PVOID Context
     );
@@ -1200,9 +1281,40 @@ PhCreateFileWin32Ex(
 PHLIBAPI
 NTSTATUS
 NTAPI
+PhOpenFileWin32(
+    _Out_ PHANDLE FileHandle,
+    _In_ PWSTR FileName,
+    _In_ ACCESS_MASK DesiredAccess,
+    _In_ ULONG ShareAccess,
+    _In_ ULONG CreateOptions
+    );
+
+PHLIBAPI
+NTSTATUS
+NTAPI
+PhOpenFileWin32Ex(
+    _Out_ PHANDLE FileHandle,
+    _In_ PWSTR FileName,
+    _In_ ACCESS_MASK DesiredAccess,
+    _In_ ULONG ShareAccess,
+    _In_ ULONG OpenOptions,
+    _Out_opt_ PULONG OpenStatus
+    );
+
+PHLIBAPI
+NTSTATUS
+NTAPI
 PhQueryFullAttributesFileWin32(
     _In_ PWSTR FileName,
     _Out_ PFILE_NETWORK_OPEN_INFORMATION FileInformation
+    );
+
+PHLIBAPI
+NTSTATUS
+NTAPI
+PhQueryAttributesFileWin32(
+    _In_ PWSTR FileName,
+    _Out_ PFILE_BASIC_INFORMATION FileInformation
     );
 
 PHLIBAPI
@@ -1232,6 +1344,16 @@ NTAPI
 PhCreatePipe(
     _Out_ PHANDLE PipeReadHandle,
     _Out_ PHANDLE PipeWriteHandle
+    );
+
+PHLIBAPI
+NTSTATUS
+NTAPI
+PhCreatePipeEx(
+    _Out_ PHANDLE PipeReadHandle,
+    _Out_ PHANDLE PipeWriteHandle,
+    _In_ BOOLEAN InheritHandles,
+    _In_opt_ PSECURITY_DESCRIPTOR SecurityDescriptor
     );
 
 PHLIBAPI

@@ -71,7 +71,7 @@ static BOOL (WINAPI* AppContainerFreeMemory_I)(
 static HRESULT (WINAPI* AppPolicyGetWindowingModel_I)(
     _In_ HANDLE ProcessTokenHandle,
     _Out_ AppPolicyWindowingModel *ProcessWindowingModelPolicy
-    );
+    ) = NULL;
 
 typedef enum _START_MENU_APP_ITEMS_FLAGS
 {
@@ -148,7 +148,7 @@ DECLARE_INTERFACE_IID(IApplicationResolver61, IUnknown)
 
 #define IApplicationResolver_QueryInterface(This, riid, ppvObject) \
     ((This)->lpVtbl->QueryInterface(This, riid, ppvObject))
-#define IApplicationResolver_AddRef(This)	\
+#define IApplicationResolver_AddRef(This) \
     ((This)->lpVtbl->AddRef(This))
 #define IApplicationResolver_Release(This) \
     ((This)->lpVtbl->Release(This))
@@ -250,7 +250,7 @@ DECLARE_INTERFACE_IID(IApplicationResolver62, IUnknown)
 
 #define IApplicationResolver2_QueryInterface(This, riid, ppvObject) \
     ((This)->lpVtbl->QueryInterface(This, riid, ppvObject))
-#define IApplicationResolver2_AddRef(This)	\
+#define IApplicationResolver2_AddRef(This) \
     ((This)->lpVtbl->AddRef(This))
 #define IApplicationResolver2_Release(This) \
     ((This)->lpVtbl->Release(This))
@@ -348,7 +348,7 @@ DECLARE_INTERFACE_IID(IStartMenuAppItems62, IUnknown)
 
 #define IStartMenuAppItems2_QueryInterface(This, riid, ppvObject) \
     ((This)->lpVtbl->QueryInterface(This, riid, ppvObject))
-#define IStartMenuAppItems2_AddRef(This)	\
+#define IStartMenuAppItems2_AddRef(This) \
     ((This)->lpVtbl->AddRef(This))
 #define IStartMenuAppItems2_Release(This) \
     ((This)->lpVtbl->Release(This))
@@ -384,7 +384,7 @@ DECLARE_INTERFACE_IID(IMrtResourceManager, IUnknown)
 
 #define IMrtResourceManager_QueryInterface(This, riid, ppvObject) \
     ((This)->lpVtbl->QueryInterface(This, riid, ppvObject)) 
-#define IMrtResourceManager_AddRef(This)	\
+#define IMrtResourceManager_AddRef(This) \
     ((This)->lpVtbl->AddRef(This))
 #define IMrtResourceManager_Release(This) \
     ((This)->lpVtbl->Release(This)) 
@@ -474,7 +474,7 @@ DECLARE_INTERFACE_IID(IResourceMap, IUnknown)
 
 #define IResourceMap_QueryInterface(This, riid, ppvObject) \
     ((This)->lpVtbl->QueryInterface(This, riid, ppvObject)) 
-#define IResourceMap_AddRef(This)	\
+#define IResourceMap_AddRef(This) \
     ((This)->lpVtbl->AddRef(This))
 #define IResourceMap_Release(This) \
     ((This)->lpVtbl->Release(This)) 
@@ -494,8 +494,8 @@ DECLARE_INTERFACE_IID(IResourceMap, IUnknown)
     ((This)->lpVtbl->GetNamedResourceCount(This, Count)) 
 #define IResourceMap_GetNamedResourceUri(This, Index, Name) \
     ((This)->lpVtbl->GetNamedResourceUri(This, Index, Name)) 
-#define IResourceMap_GetNamedResource(This) \
-    ((This)->lpVtbl->GetNamedResource(This)) 
+#define IResourceMap_GetNamedResource(This, Name, rrid, ppvObject) \
+    ((This)->lpVtbl->GetNamedResource(This, Name, rrid, ppvObject))
 #define IResourceMap_GetFullyQualifiedReference(This) \
     ((This)->lpVtbl->GetFullyQualifiedReference(This)) 
 #define IResourceMap_GetFilePathByUri(This) \

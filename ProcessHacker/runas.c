@@ -160,8 +160,8 @@ VOID PhSetDesktopWinStaAccess(
 
 VOID PhpSplitUserName(
     _In_ PWSTR UserName,
-    _Out_ PPH_STRING *DomainPart,
-    _Out_ PPH_STRING *UserPart
+    _Out_opt_ PPH_STRING* DomainPart,
+    _Out_opt_ PPH_STRING* UserPart
     );
 
 #define SIP(String, Integer) { (String), (PVOID)(Integer) }
@@ -246,7 +246,7 @@ PPH_STRING GetCurrentWinStaName(
         GetProcessWindowStation(),
         UOI_NAME,
         string->Buffer,
-        (ULONG)string->Length + 2,
+        (ULONG)string->Length + sizeof(UNICODE_NULL),
         NULL
         ))
     {
@@ -273,7 +273,7 @@ BOOLEAN PhpInitializeNetApi(VOID)
             NetApiBufferFree_I = PhGetDllBaseProcedureAddress(netapiModuleHandle, "NetApiBufferFree", 0);
         }
 
-        if (!NetUserEnum_I && !NetApiBufferFree_I)
+        if (netapiModuleHandle && !NetUserEnum_I && !NetApiBufferFree_I)
         {
             FreeLibrary(netapiModuleHandle);
             netapiModuleHandle = NULL;
@@ -414,7 +414,8 @@ VOID PhpFreeProgramsComboBox(
 {
     ULONG total;
 
-    total = ComboBox_GetCount(ComboBoxHandle);
+    if ((total = ComboBox_GetCount(ComboBoxHandle)) == CB_ERR)
+        return;
 
     for (ULONG i = 0; i < total; i++)
     {
@@ -428,7 +429,8 @@ static VOID PhpFreeAccountsComboBox(
 {
     ULONG total;
 
-    total = ComboBox_GetCount(ComboBoxHandle);
+    if ((total = ComboBox_GetCount(ComboBoxHandle)) == CB_ERR)
+        return;
 
     for (ULONG i = 0; i < total; i++)
     {
@@ -573,7 +575,8 @@ static VOID PhpFreeSessionsComboBox(
     ULONG total;
     ULONG i;
 
-    total = ComboBox_GetCount(ComboBoxHandle);
+    if ((total = ComboBox_GetCount(ComboBoxHandle)) == CB_ERR)
+        return;
 
     for (i = 0; i < total; i++)
     {
@@ -701,7 +704,8 @@ static VOID PhpFreeDesktopsComboBox(
     ULONG total;
     ULONG i;
 
-    total = ComboBox_GetCount(ComboBoxHandle);
+    if ((total = ComboBox_GetCount(ComboBoxHandle)) == CB_ERR)
+        return;
 
     for (i = 0; i < total; i++)
     {
@@ -855,8 +859,8 @@ INT_PTR CALLBACK PhpRunAsDlgProc(
 
                 if (SendMessage(context->ProgramComboBoxWindowHandle, CB_GETCOMBOBOXINFO, 0, (LPARAM)&info))
                 {
-                    if (SHAutoComplete_I)
-                        SHAutoComplete_I(info.hwndItem, SHACF_DEFAULT);
+                    if (SHAutoComplete)
+                        SHAutoComplete(info.hwndItem, SHACF_DEFAULT);
                 }
             }
 
@@ -1098,8 +1102,8 @@ INT_PTR CALLBACK PhpRunAsDlgProc(
                             createInfo.Password = PhGetStringOrEmpty(password);
 
                             // Whenever we can, try not to set the desktop name; it breaks a lot of things.
-                            if (desktopName->Length != 0 && !PhEqualString2(desktopName, L"WinSta0\\Default", TRUE))
-                                createInfo.DesktopName = desktopName->Buffer;
+                            if (!PhIsNullOrEmptyString(desktopName) && !PhEqualString2(desktopName, L"WinSta0\\Default", TRUE))
+                                createInfo.DesktopName = PhGetString(desktopName);
 
                             PhSetDesktopWinStaAccess();
 
@@ -1512,8 +1516,8 @@ NTSTATUS PhExecuteRunAsCommand3(
 
 static VOID PhpSplitUserName(
     _In_ PWSTR UserName,
-    _Out_ PPH_STRING *DomainPart,
-    _Out_ PPH_STRING *UserPart
+    _Out_opt_ PPH_STRING *DomainPart,
+    _Out_opt_ PPH_STRING *UserPart
     )
 {
     PH_STRINGREF userName;
@@ -1608,11 +1612,11 @@ NTSTATUS PhRunAsServiceStart(
         &tokenHandle
         )))
     {
-        PhSetTokenPrivilege(tokenHandle, L"SeAssignPrimaryTokenPrivilege", NULL, SE_PRIVILEGE_ENABLED);
-        PhSetTokenPrivilege(tokenHandle, L"SeBackupPrivilege", NULL, SE_PRIVILEGE_ENABLED);
-        PhSetTokenPrivilege(tokenHandle, L"SeImpersonatePrivilege", NULL, SE_PRIVILEGE_ENABLED);
-        PhSetTokenPrivilege(tokenHandle, L"SeIncreaseQuotaPrivilege", NULL, SE_PRIVILEGE_ENABLED);
-        PhSetTokenPrivilege(tokenHandle, L"SeRestorePrivilege", NULL, SE_PRIVILEGE_ENABLED);
+        PhSetTokenPrivilege2(tokenHandle, SE_ASSIGNPRIMARYTOKEN_PRIVILEGE, SE_PRIVILEGE_ENABLED);
+        PhSetTokenPrivilege2(tokenHandle, SE_INCREASE_QUOTA_PRIVILEGE, SE_PRIVILEGE_ENABLED);
+        PhSetTokenPrivilege2(tokenHandle, SE_BACKUP_PRIVILEGE, SE_PRIVILEGE_ENABLED);
+        PhSetTokenPrivilege2(tokenHandle, SE_RESTORE_PRIVILEGE, SE_PRIVILEGE_ENABLED);
+        PhSetTokenPrivilege2(tokenHandle, SE_IMPERSONATE_PRIVILEGE, SE_PRIVILEGE_ENABLED);
         NtClose(tokenHandle);
     }
 

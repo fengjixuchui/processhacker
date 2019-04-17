@@ -3,6 +3,7 @@
  *   LSA support functions
  *
  * Copyright (C) 2010-2011 wj32
+ * Copyright (C) 2019 dmex
  *
  * This file is part of Process Hacker.
  *
@@ -63,7 +64,7 @@ LSA_HANDLE PhGetLookupPolicyHandle(
 
     // Use the cached value if possible.
 
-    lookupPolicyHandle = cachedLookupPolicyHandle;
+    lookupPolicyHandle = InterlockedCompareExchangePointer(&cachedLookupPolicyHandle, NULL, NULL);
 
     // If there is no cached handle, open one.
 
@@ -78,7 +79,7 @@ LSA_HANDLE PhGetLookupPolicyHandle(
             // We succeeded in opening a policy handle, and since we did not have a cached handle
             // before, we will now store it.
 
-            lookupPolicyHandle = _InterlockedCompareExchangePointer(
+            lookupPolicyHandle = InterlockedCompareExchangePointer(
                 &cachedLookupPolicyHandle,
                 newLookupPolicyHandle,
                 NULL
@@ -266,6 +267,127 @@ NTSTATUS PhLookupSid(
         LsaFreeMemory(names);
 
     return status;
+}
+
+/**
+ * Converts an array of SIDs to a human-readable form.
+ *
+ * \param Count The size of the array.
+ * \param Sids An array of SIDs to query.
+ * \param FullNames A variable which receives a pointer to an array of strings in the following format:
+ * domain\\user. If not applicable to a particular SID, the function returns its SDDL representation.
+ * You must free each item using PhDereferenceObject(), and then free the array by calling PhFree().
+ */
+VOID PhLookupSids(
+    _In_ ULONG Count,
+    _In_ PSID *Sids,
+    _Out_ PPH_STRING **FullNames
+    )
+{
+    NTSTATUS status;
+    PLSA_REFERENCED_DOMAIN_LIST referencedDomains = NULL;
+    PLSA_TRANSLATED_NAME names = NULL;
+    PPH_STRING *translatedNames;
+
+    translatedNames = PhAllocateZero(sizeof(PPH_STRING) * Count);
+
+    status = LsaLookupSids(
+        PhGetLookupPolicyHandle(),
+        Count,
+        Sids,
+        &referencedDomains,
+        &names
+        );
+
+    if (status == STATUS_NONE_MAPPED)
+    {
+        // Even without mapping names it converts most of them to SDDL representation
+        status = STATUS_SOME_NOT_MAPPED;
+    }
+
+    if (NT_SUCCESS(status))
+    {
+        PPH_STRING userName;
+        PPH_STRING domainName;
+
+        for (ULONG i = 0; i < Count; i++)
+        {
+            userName = NULL;
+            domainName = NULL;
+
+            // Reference user if present
+            if (names[i].Name.Length > 0)
+            {
+                userName = PhCreateStringFromUnicodeString(&names[i].Name);
+            }
+
+            // Reference domain if present
+            if (names[i].DomainIndex >= 0)
+            {
+                PLSA_TRUST_INFORMATION trustInfo;
+
+                trustInfo = &referencedDomains->Domains[names[i].DomainIndex];
+
+                if (trustInfo->Name.Length > 0)
+                {
+                    domainName = PhCreateStringFromUnicodeString(&trustInfo->Name);
+                }
+            }
+
+            // Construct the name
+            if (names[i].Use != SidTypeInvalid && names[i].Use != SidTypeUnknown)
+            {
+                if (domainName && userName)
+                {
+                    translatedNames[i] = PhConcatStrings(
+                        3,
+                        domainName->Buffer,
+                        L"\\",
+                        userName->Buffer
+                        );
+                }
+                else if (domainName)
+                {
+                    translatedNames[i] = PhReferenceObject(domainName);
+                }
+                else if (userName)
+                {
+                    translatedNames[i] = PhReferenceObject(userName);
+                }
+            }
+            else
+            {
+                if (PhStartsWithString2(userName, L"S-1-", TRUE))
+                {
+                    translatedNames[i] = PhReferenceObject(userName);
+                }
+            }
+
+            if (userName)
+            {
+                PhDereferenceObject(userName);
+            }
+
+            if (domainName)
+            {
+                PhDereferenceObject(domainName);
+            }
+        }
+
+        LsaFreeMemory(referencedDomains);
+        LsaFreeMemory(names);
+    }
+
+    for (ULONG i = 0; i < Count; i++)
+    {
+        // Make sure everything is converted at least to SDDL
+        if (!translatedNames[i])
+        {
+            translatedNames[i] = PhSidToStringSid(Sids[i]);
+        }
+    }
+
+    *FullNames = translatedNames;
 }
 
 /**
@@ -490,4 +612,302 @@ PPH_STRING PhGetTokenUserString(
     }
 
     return tokenUserString;
+}
+
+typedef struct _PH_CAPABILITY_ENTRY
+{
+    PPH_STRING Name;
+    PSID CapabilityGroupSid;
+    PSID CapabilitySid;
+} PH_CAPABILITY_ENTRY, *PPH_CAPABILITY_ENTRY;
+
+VOID PhInitializeCapabilitySidCache(
+    _Inout_ PPH_ARRAY CapabilitySidArrayList
+    )
+{
+    NTSTATUS (NTAPI *RtlDeriveCapabilitySidsFromName_I)(
+        _Inout_ PUNICODE_STRING UnicodeString,
+        _Out_ PSID CapabilityGroupSid,
+        _Out_ PSID CapabilitySid
+        );
+    PPH_STRING applicationDirectory;
+    PPH_STRING capabilityListString = NULL;
+    PH_STRINGREF namePart;
+    PH_STRINGREF remainingPart;
+
+    if (!(RtlDeriveCapabilitySidsFromName_I = PhGetDllProcedureAddress(L"ntdll.dll", "RtlDeriveCapabilitySidsFromName", 0)))
+        return;
+
+    if (applicationDirectory = PhGetApplicationDirectory())
+    {
+        PPH_STRING capabilityListFileName;
+
+        capabilityListFileName = PhConcatStringRefZ(&applicationDirectory->sr, L"capslist.txt");
+        PhDereferenceObject(applicationDirectory);
+
+        capabilityListString = PhFileReadAllText(capabilityListFileName->Buffer);
+        PhDereferenceObject(capabilityListFileName);      
+    }
+
+    if (!capabilityListString)
+        return;
+
+    PhInitializeArray(CapabilitySidArrayList, sizeof(PH_CAPABILITY_ENTRY), 800);
+    remainingPart = PhGetStringRef(capabilityListString);
+
+    while (remainingPart.Length != 0)
+    {
+        PhSplitStringRefAtChar(&remainingPart, '\n', &namePart, &remainingPart);
+
+        if (namePart.Length != 0)
+        {
+            BYTE capabilityGroupSidBuffer[SECURITY_MAX_SID_SIZE];
+            BYTE capabilitySidBuffer[SECURITY_MAX_SID_SIZE];
+            PSID capabilityGroupSid = (PSID)capabilityGroupSidBuffer;
+            PSID capabilitySid = (PSID)capabilitySidBuffer;
+            UNICODE_STRING capabilityNameUs;
+
+            if (PhEndsWithStringRef2(&namePart, L"\r", FALSE))
+                namePart.Length -= sizeof(WCHAR);
+
+            if (!PhStringRefToUnicodeString(&namePart, &capabilityNameUs))
+                continue;
+
+            if (NT_SUCCESS(RtlDeriveCapabilitySidsFromName_I(
+                &capabilityNameUs,
+                capabilityGroupSid,
+                capabilitySid
+                )))
+            {
+                PH_CAPABILITY_ENTRY entry;
+
+                entry.Name = PhCreateStringFromUnicodeString(&capabilityNameUs);
+                entry.CapabilityGroupSid = PhAllocateCopy(capabilityGroupSid, RtlLengthSid(capabilityGroupSid));
+                entry.CapabilitySid = PhAllocateCopy(capabilitySid, RtlLengthSid(capabilitySid));
+
+                PhAddItemArray(CapabilitySidArrayList, &entry);
+            }
+        }
+    }
+
+    PhDereferenceObject(capabilityListString);
+}
+
+PPH_STRING PhGetCapabilitySidName(
+    _In_ PSID CapabilitySid
+    )
+{
+    static PH_INITONCE initOnce = PH_INITONCE_INIT;
+    static PH_ARRAY capabilitySidArrayList;
+    PPH_CAPABILITY_ENTRY entry;
+    SIZE_T i;
+
+    if (WindowsVersion < WINDOWS_8)
+        return NULL;
+
+    if (PhBeginInitOnce(&initOnce))
+    {
+        PhInitializeCapabilitySidCache(&capabilitySidArrayList);
+        PhEndInitOnce(&initOnce);
+    }
+
+    for (i = 0; i < capabilitySidArrayList.Count; i++)
+    {
+        entry = PhItemArray(&capabilitySidArrayList, i);
+
+        if (RtlEqualSid(entry->CapabilitySid, CapabilitySid))
+        {
+            return PhReferenceObject(entry->Name);
+        }
+
+        if (RtlEqualSid(entry->CapabilityGroupSid, CapabilitySid))
+        {
+            return PhReferenceObject(entry->Name);
+        }
+    }
+
+    return NULL;
+}
+
+typedef struct _PH_CAPABILITY_GUID_ENTRY
+{
+    PPH_STRING Name;
+    PPH_STRING CapabilityGuid;
+} PH_CAPABILITY_GUID_ENTRY, *PPH_CAPABILITY_GUID_ENTRY;
+
+typedef struct _PH_CAPABILITY_KEY_CALLBACK
+{
+    PPH_STRING KeyName;
+    PVOID Context;
+} PH_CAPABILITY_KEY_CALLBACK, *PPH_CAPABILITY_KEY_CALLBACK;
+
+BOOLEAN NTAPI PhpAccessManagerEnumerateKeyCallback(
+    _In_ HANDLE RootDirectory,
+    _In_ PKEY_BASIC_INFORMATION Information,
+    _In_opt_ PVOID Context
+    )
+{
+    HANDLE keyHandle;
+    PPH_STRING guidString;
+    PH_STRINGREF keyName;
+
+    keyName.Buffer = Information->Name;
+    keyName.Length = Information->NameLength;
+
+    if (NT_SUCCESS(PhOpenKey(
+        &keyHandle,
+        KEY_READ,
+        RootDirectory,
+        &keyName,
+        0
+        )))
+    {
+        if (guidString = PhQueryRegistryString(keyHandle, L"LegacyInterfaceClassGuid"))
+        {
+            PH_CAPABILITY_GUID_ENTRY entry;
+
+            PhSetReference(&entry.Name, PhCreateString2(&keyName));
+            PhSetReference(&entry.CapabilityGuid, guidString);
+            PhAddItemArray(Context, &entry);
+
+            PhDereferenceObject(guidString);
+        }
+
+        NtClose(keyHandle);
+    }
+
+    return TRUE;
+}
+
+BOOLEAN NTAPI PhpDeviceAccessSubKeyEnumerateKeyCallback(
+    _In_ HANDLE RootDirectory,
+    _In_ PKEY_BASIC_INFORMATION Information,
+    _In_opt_ PVOID Context
+    )
+{
+    PPH_CAPABILITY_KEY_CALLBACK context = Context;
+    HANDLE keyHandle;
+    PH_STRINGREF keyName;
+
+    keyName.Buffer = Information->Name;
+    keyName.Length = Information->NameLength;
+
+    if (NT_SUCCESS(PhOpenKey(
+        &keyHandle,
+        KEY_READ,
+        RootDirectory,
+        &keyName,
+        0
+        )))
+    {
+        PH_CAPABILITY_GUID_ENTRY entry;
+
+        PhSetReference(&entry.Name, context->KeyName);
+        PhSetReference(&entry.CapabilityGuid, PhCreateString2(&keyName));
+        PhAddItemArray(context->Context, &entry);
+
+        NtClose(keyHandle);
+    }
+
+    return TRUE;
+}
+
+BOOLEAN NTAPI PhpDeviceAccessEnumerateKeyCallback(
+    _In_ HANDLE RootDirectory,
+    _In_ PKEY_BASIC_INFORMATION Information,
+    _In_opt_ PVOID Context
+    )
+{
+    HANDLE keyHandle;
+    PH_STRINGREF keyName;
+
+    keyName.Buffer = Information->Name;
+    keyName.Length = Information->NameLength;
+
+    if (NT_SUCCESS(PhOpenKey(
+        &keyHandle,
+        KEY_READ,
+        RootDirectory,
+        &keyName,
+        0
+        )))
+    {
+        PH_CAPABILITY_KEY_CALLBACK entry;
+
+        entry.KeyName = PhCreateString2(&keyName);
+        entry.Context = Context;
+
+        PhEnumerateKey(keyHandle, PhpDeviceAccessSubKeyEnumerateKeyCallback, &entry);
+
+        PhDereferenceObject(entry.KeyName);
+        NtClose(keyHandle);
+    }
+
+    return TRUE;
+}
+
+VOID PhInitializeCapabilityGuidCache(
+    _Inout_ PPH_ARRAY CapabilityGuidArrayList
+    )
+{
+    static PH_STRINGREF accessManagerKeyPath = PH_STRINGREF_INIT(L"Software\\Microsoft\\Windows\\CurrentVersion\\CapabilityAccessManager\\Capabilities");
+    static PH_STRINGREF deviceAccessKeyPath = PH_STRINGREF_INIT(L"Software\\Microsoft\\Windows\\CurrentVersion\\DeviceAccess\\CapabilityMappings");
+    HANDLE keyHandle;
+
+    PhInitializeArray(CapabilityGuidArrayList, sizeof(PH_CAPABILITY_GUID_ENTRY), 100);
+
+    if (NT_SUCCESS(PhOpenKey(
+        &keyHandle,
+        KEY_READ,
+        PH_KEY_LOCAL_MACHINE,
+        &accessManagerKeyPath,
+        0
+        )))
+    {
+        PhEnumerateKey(keyHandle, PhpAccessManagerEnumerateKeyCallback, CapabilityGuidArrayList);
+        NtClose(keyHandle);
+    }
+
+    if (NT_SUCCESS(PhOpenKey(
+        &keyHandle,
+        KEY_READ,
+        PH_KEY_LOCAL_MACHINE,
+        &deviceAccessKeyPath,
+        0
+        )))
+    {
+        PhEnumerateKey(keyHandle, PhpDeviceAccessEnumerateKeyCallback, CapabilityGuidArrayList);
+        NtClose(keyHandle);
+    }
+}
+
+PPH_STRING PhGetCapabilityGuidName(
+    _In_ PPH_STRING GuidString
+    )
+{
+    static PH_INITONCE initOnce = PH_INITONCE_INIT;
+    static PH_ARRAY capabilityGuidArrayList;
+    PPH_CAPABILITY_GUID_ENTRY entry;
+    SIZE_T i;
+
+    if (WindowsVersion < WINDOWS_8)
+        return NULL;
+
+    if (PhBeginInitOnce(&initOnce))
+    {
+        PhInitializeCapabilityGuidCache(&capabilityGuidArrayList);
+        PhEndInitOnce(&initOnce);
+    }
+
+    for (i = 0; i < capabilityGuidArrayList.Count; i++)
+    {
+        entry = PhItemArray(&capabilityGuidArrayList, i);
+
+        if (PhEqualString(entry->CapabilityGuid, GuidString, TRUE))
+        {
+            return PhReferenceObject(entry->Name);
+        }
+    }
+
+    return NULL;
 }

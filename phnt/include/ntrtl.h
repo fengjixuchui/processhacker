@@ -1408,7 +1408,7 @@ VOID
 NTAPI
 RtlInitEmptyUnicodeString(
     _Out_ PUNICODE_STRING DestinationString,
-    _In_ PWCHAR Buffer,
+    _In_opt_ PWCHAR Buffer,
     _In_ USHORT MaximumLength
     )
 {
@@ -1424,7 +1424,7 @@ FORCEINLINE VOID RtlInitUnicodeString(
     )
 {
     if (SourceString)
-        DestinationString->MaximumLength = (DestinationString->Length = (USHORT)(wcslen(SourceString) * sizeof(WCHAR))) + sizeof(WCHAR);
+        DestinationString->MaximumLength = (DestinationString->Length = (USHORT)(wcslen(SourceString) * sizeof(WCHAR))) + sizeof(UNICODE_NULL);
     else
         DestinationString->MaximumLength = DestinationString->Length = 0;
 
@@ -2638,6 +2638,17 @@ RtlCreateUserProcess(
     _Out_ PRTL_USER_PROCESS_INFORMATION ProcessInformation
     );
 
+NTSYSAPI
+NTSTATUS
+NTAPI
+RtlCreateUserProcessEx(
+    _In_ PUNICODE_STRING NtImagePathName,
+    _In_ PRTL_USER_PROCESS_PARAMETERS ProcessParameters,
+    _In_ BOOLEAN InheritHandles,
+    _Reserved_ ULONG Flags,
+    _Out_ PRTL_USER_PROCESS_INFORMATION ProcessInformation
+    );
+
 #if (PHNT_VERSION >= PHNT_VISTA)
 DECLSPEC_NORETURN
 NTSYSAPI
@@ -3389,6 +3400,13 @@ RtlDetermineDosPathNameType_U(
     );
 
 NTSYSAPI
+RTL_PATH_TYPE
+NTAPI
+RtlDetermineDosPathNameType_Ustr(
+    _In_ PCUNICODE_STRING DosFileName
+    );
+
+NTSYSAPI
 ULONG
 NTAPI
 RtlIsDosDeviceName_U(
@@ -4081,6 +4099,13 @@ RtlWalkHeap(
 #define HeapDetailedFailureInformation 0x80000001
 #define HeapSetDebuggingInformation 0x80000002 // q; s: HEAP_DEBUGGING_INFORMATION
 
+typedef enum _HEAP_COMPATIBILITY_MODE
+{
+    HEAP_COMPATIBILITY_STANDARD = 0UL,
+    HEAP_COMPATIBILITY_LAL = 1UL,
+    HEAP_COMPATIBILITY_LFH = 2UL,
+} HEAP_COMPATIBILITY_MODE;
+
 typedef struct _PROCESS_HEAP_INFORMATION
 {
     ULONG_PTR ReserveSize;
@@ -4106,8 +4131,11 @@ typedef struct _HEAP_EXTENDED_INFORMATION
     ULONG Level;
     PVOID CallbackRoutine;
     PVOID CallbackContext;
-    PROCESS_HEAP_INFORMATION ProcessHeapInformation;
-    HEAP_INFORMATION HeapInformation;
+    union
+    {
+        PROCESS_HEAP_INFORMATION ProcessHeapInformation;
+        HEAP_INFORMATION HeapInformation;
+    };
 } HEAP_EXTENDED_INFORMATION, *PHEAP_EXTENDED_INFORMATION;
 
 // rev

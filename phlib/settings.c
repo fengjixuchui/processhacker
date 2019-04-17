@@ -731,9 +731,11 @@ PPH_STRING PhpGetOpaqueXmlNodeText(
     _In_ mxml_node_t *node
     )
 {
-    if (node->child && node->child->type == MXML_OPAQUE && node->child->value.opaque)
+    PCSTR string;
+
+    if (string = mxmlGetOpaque(node))
     {
-        return PhConvertUtf8ToUtf16(node->child->value.opaque);
+        return PhConvertUtf8ToUtf16((PSTR)string);
     }
     else
     {
@@ -779,25 +781,22 @@ NTSTATUS PhLoadSettings(
     if (!topNode)
         return STATUS_FILE_CORRUPT_ERROR;
 
-    if (topNode->type != MXML_ELEMENT)
+    if (mxmlGetType(topNode) != MXML_ELEMENT)
     {
         mxmlDelete(topNode);
         return STATUS_FILE_CORRUPT_ERROR;
     }
 
-    currentNode = topNode->child;
+    currentNode = mxmlGetFirstChild(topNode);
 
     while (currentNode)
     {
         PPH_STRING settingName = NULL;
+        PCSTR elementValue;
 
-        if (
-            currentNode->type == MXML_ELEMENT &&
-            currentNode->value.element.num_attrs >= 1 &&
-            _stricmp(currentNode->value.element.attrs[0].name, "name") == 0
-            )
+        if (elementValue = mxmlElementGetAttr(currentNode, "name"))
         {
-            settingName = PhConvertUtf8ToUtf16(currentNode->value.element.attrs[0].value);
+            settingName = PhConvertUtf8ToUtf16((PSTR)elementValue);
         }
 
         if (settingName)
@@ -850,7 +849,7 @@ NTSTATUS PhLoadSettings(
             PhDereferenceObject(settingName);
         }
 
-        currentNode = currentNode->next;
+        currentNode = mxmlGetNextSibling(currentNode);
     }
 
     mxmlDelete(topNode);
@@ -865,14 +864,19 @@ char *PhpSettingsSaveCallback(
     _In_ int position
     )
 {
-    if (PhEqualBytesZ(node->value.element.name, "setting", TRUE))
+    PSTR elementName;
+
+    if (!(elementName = (PSTR)mxmlGetElement(node)))
+        return NULL;
+
+    if (PhEqualBytesZ(elementName, "setting", TRUE))
     {
         if (position == MXML_WS_BEFORE_OPEN)
             return "  ";
         else if (position == MXML_WS_AFTER_CLOSE)
             return "\r\n";
     }
-    else if (PhEqualBytesZ(node->value.element.name, "settings", TRUE))
+    else if (PhEqualBytesZ(elementName, "settings", TRUE))
     {
         if (position == MXML_WS_AFTER_OPEN)
             return "\r\n";

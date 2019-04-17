@@ -107,7 +107,7 @@
       <SubSystem>Windows</SubSystem>
       <TargetMachine>MachineX86</TargetMachine>
       <MinimumRequiredVersion>6.01</MinimumRequiredVersion>
-      <DelayLoadDLLs>%(DelayLoadDLLs)</DelayLoadDLLs>
+      <DelayLoadDLLs>advapi32.dll;comctl32.dll;comdlg32.dll;gdi32.dll;ole32.dll;propsys.dll;shell32.dll;user32.dll;userenv.dll;uxtheme.dll;version.dll;winsta.dll;%(DelayLoadDLLs)</DelayLoadDLLs>
     </Link>
     <ResourceCompile>
       <AdditionalIncludeDirectories>..\..\phnt\include;..\..\phlib\include;include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
@@ -138,7 +138,7 @@
       <SubSystem>Windows</SubSystem>
       <TargetMachine>MachineX64</TargetMachine>
       <MinimumRequiredVersion>6.01</MinimumRequiredVersion>
-      <DelayLoadDLLs>%(DelayLoadDLLs)</DelayLoadDLLs>
+      <DelayLoadDLLs>advapi32.dll;comctl32.dll;comdlg32.dll;gdi32.dll;ole32.dll;propsys.dll;shell32.dll;user32.dll;userenv.dll;uxtheme.dll;version.dll;winsta.dll;%(DelayLoadDLLs)</DelayLoadDLLs>
     </Link>
     <ResourceCompile>
       <AdditionalIncludeDirectories>..\..\phnt\include;..\..\phlib\include;include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
@@ -175,7 +175,7 @@
       <TargetMachine>MachineX86</TargetMachine>
       <SetChecksum>true</SetChecksum>
       <MinimumRequiredVersion>6.01</MinimumRequiredVersion>
-      <DelayLoadDLLs>%(DelayLoadDLLs)</DelayLoadDLLs>
+      <DelayLoadDLLs>advapi32.dll;comctl32.dll;comdlg32.dll;gdi32.dll;ole32.dll;propsys.dll;shell32.dll;user32.dll;userenv.dll;uxtheme.dll;version.dll;winsta.dll;%(DelayLoadDLLs)</DelayLoadDLLs>
     </Link>
     <ResourceCompile>
       <AdditionalIncludeDirectories>..\..\phnt\include;..\..\phlib\include;include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
@@ -211,7 +211,7 @@
       <TargetMachine>MachineX64</TargetMachine>
       <SetChecksum>true</SetChecksum>
       <MinimumRequiredVersion>6.01</MinimumRequiredVersion>
-      <DelayLoadDLLs>%(DelayLoadDLLs)</DelayLoadDLLs>
+      <DelayLoadDLLs>advapi32.dll;comctl32.dll;comdlg32.dll;gdi32.dll;ole32.dll;propsys.dll;shell32.dll;user32.dll;userenv.dll;uxtheme.dll;version.dll;winsta.dll;%(DelayLoadDLLs)</DelayLoadDLLs>
     </Link>
     <ResourceCompile>
       <AdditionalIncludeDirectories>..\..\phnt\include;..\..\phlib\include;include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
@@ -223,6 +223,7 @@
     <ClCompile Include="clrprp.c" />
     <ClCompile Include="colmgr.c" />
     <ClCompile Include="attributes.c" />
+    <ClCompile Include="exlfdynamic.c" />
     <ClCompile Include="exlfexports.c" />
     <ClCompile Include="exlfimports.c" />
     <ClCompile Include="exlfprp.c" />
@@ -230,17 +231,20 @@
     <ClCompile Include="expprp.c" />
     <ClCompile Include="impprp.c" />
     <ClCompile Include="libprp.c" />
+    <ClCompile Include="links.c" />
     <ClCompile Include="main.c" />
     <ClCompile Include="misc.c" />
     <ClCompile Include="pdb.c" />
     <ClCompile Include="pdbprp.c" />
     <ClCompile Include="peprp.c" />
+    <ClCompile Include="processes.c" />
     <ClCompile Include="propstore.c" />
     <ClCompile Include="prpsh.c" />
     <ClCompile Include="resprp.c" />
     <ClCompile Include="searchbox.c" />
     <ClCompile Include="settings.c" />
     <ClCompile Include="streams.c" />
+    <ClCompile Include="tlsprp.c" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="colmgr.h" />
@@ -264,6 +268,7 @@
   <ItemGroup>
     <Image Include="resources\active_search.bmp" />
     <Image Include="resources\active_search.png" />
+    <Image Include="resources\application.ico" />
     <Image Include="resources\inactive_search.bmp" />
     <Image Include="resources\inactive_search.png" />
     <Image Include="resources\ProcessHacker.ico" />

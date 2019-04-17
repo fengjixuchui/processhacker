@@ -14,8 +14,23 @@ typedef enum _PH_TRAY_ICON_ID
     PH_TRAY_ICON_ID_CPU_TEXT,
     PH_TRAY_ICON_ID_IO_TEXT,
     PH_TRAY_ICON_ID_COMMIT_TEXT,
-    PH_TRAY_ICON_ID_PHYSICAL_TEXT
+    PH_TRAY_ICON_ID_PHYSICAL_TEXT,
+    PH_TRAY_ICON_ID_MAXIMUM
 } PH_TRAY_ICON_ID;
+
+typedef enum _PH_TRAY_ICON_GUID
+{
+    PH_TRAY_ICON_GUID_CPU_USAGE,
+    PH_TRAY_ICON_GUID_CPU_HISTORY,
+    PH_TRAY_ICON_GUID_IO_HISTORY,
+    PH_TRAY_ICON_GUID_COMMIT_HISTORY,
+    PH_TRAY_ICON_GUID_PHYSICAL_HISTORY,
+    PH_TRAY_ICON_GUID_CPU_TEXT,
+    PH_TRAY_ICON_GUID_IO_TEXT,
+    PH_TRAY_ICON_GUID_COMMIT_TEXT,
+    PH_TRAY_ICON_GUID_PHYSICAL_TEXT,
+    PH_TRAY_ICON_GUID_MAXIMUM
+} PH_TRAY_ICON_GUID;
 
 #define PH_TRAY_ICON_ID_PLUGIN 0x80
 
@@ -92,11 +107,11 @@ typedef struct _PH_NF_ICON
     PWSTR Text;
     ULONG Flags;
     ULONG IconId;
+    GUID IconGuid;
     PPH_NF_ICON_UPDATE_CALLBACK UpdateCallback;
     PPH_NF_ICON_MESSAGE_CALLBACK MessageCallback;
 
     PPH_STRING TextCache;
-
 // begin_phapppub
 } PH_NF_ICON, *PPH_NF_ICON;
 // end_phapppub
@@ -128,7 +143,6 @@ VOID PhNfSetVisibleIcon(
     );
 
 BOOLEAN PhNfShowBalloonTip(
-    _In_opt_ ULONG Id,
     _In_ PWSTR Title,
     _In_ PWSTR Text,
     _In_ ULONG Timeout,
@@ -142,6 +156,7 @@ HICON PhNfBitmapToIcon(
 struct _PH_NF_ICON *PhNfPluginRegisterIcon(
     _In_ struct _PH_PLUGIN * Plugin,
     _In_ ULONG SubId,
+    _In_ GUID Guid,
     _In_opt_ PVOID Context,
     _In_ PWSTR Text,
     _In_ ULONG Flags,
@@ -149,8 +164,9 @@ struct _PH_NF_ICON *PhNfPluginRegisterIcon(
     );
 
 PPH_NF_ICON PhNfRegisterIcon(
-    _In_ struct _PH_PLUGIN *Plugin,
+    _In_opt_ struct _PH_PLUGIN *Plugin,
     _In_ ULONG Id,
+    _In_ GUID Guid,
     _In_opt_ PVOID Context,
     _In_ PWSTR Text,
     _In_ ULONG Flags,

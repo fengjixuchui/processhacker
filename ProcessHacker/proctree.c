@@ -3,7 +3,7 @@
  *   process tree list
  *
  * Copyright (C) 2010-2016 wj32
- * Copyright (C) 2016-2017 dmex
+ * Copyright (C) 2016-2019 dmex
  *
  * This file is part of Process Hacker.
  *
@@ -215,6 +215,7 @@ VOID PhInitializeProcessTreeList(
     PhAddTreeNewColumnEx(hwnd, PHPRTLC_PROTECTION, FALSE, L"Protection", 105, PH_ALIGN_LEFT, ULONG_MAX, 0, TRUE);
     PhAddTreeNewColumnEx(hwnd, PHPRTLC_DESKTOP, FALSE, L"Desktop", 80, PH_ALIGN_LEFT, ULONG_MAX, 0, TRUE);
     PhAddTreeNewColumnEx(hwnd, PHPRTLC_CRITICAL, FALSE, L"Critical", 80, PH_ALIGN_LEFT, ULONG_MAX, 0, TRUE);
+    PhAddTreeNewColumnEx(hwnd, PHPRTLC_PIDHEX, FALSE, L"PID (Hex)", 50, PH_ALIGN_RIGHT, ULONG_MAX, DT_RIGHT, TRUE);
 
     TreeNew_SetRedraw(hwnd, TRUE);
 
@@ -602,6 +603,8 @@ VOID PhpRemoveProcessNode(
     PhClearReference(&ProcessNode->FileSizeText);
     PhClearReference(&ProcessNode->SubprocessCountText);
     PhClearReference(&ProcessNode->ProtectionText);
+    PhClearReference(&ProcessNode->DesktopInfoText);
+    PhClearReference(&ProcessNode->UserName);
 
     PhDeleteGraphBuffers(&ProcessNode->CpuGraphBuffers);
     PhDeleteGraphBuffers(&ProcessNode->PrivateGraphBuffers);
@@ -742,7 +745,7 @@ static BOOLEAN PhpFormatInt32GroupDigits(
         if (String)
         {
             String->Buffer = Buffer;
-            String->Length = returnLength - sizeof(WCHAR);
+            String->Length = returnLength - sizeof(UNICODE_NULL);
         }
 
         return TRUE;
@@ -927,14 +930,24 @@ static VOID PhpUpdateProcessNodeWindow(
 {
     if (!(ProcessNode->ValidMask & PHPN_WINDOW))
     {
-        ProcessNode->WindowHandle = PhGetProcessMainWindow(ProcessNode->ProcessId, ProcessNode->ProcessItem->QueryHandle);
-
         PhClearReference(&ProcessNode->WindowText);
 
-        if (ProcessNode->WindowHandle)
+        if (ProcessNode->ProcessItem->IsSubsystemProcess)
         {
-            PhGetWindowTextEx(ProcessNode->WindowHandle, PH_GET_WINDOW_TEXT_INTERNAL, &ProcessNode->WindowText);
-            ProcessNode->WindowHung = !!IsHungAppWindow(ProcessNode->WindowHandle);
+            NOTHING;
+        }
+        else
+        {
+            ProcessNode->WindowHandle = PhGetProcessMainWindow(
+                ProcessNode->ProcessId,
+                ProcessNode->ProcessItem->QueryHandle
+                );
+
+            if (ProcessNode->WindowHandle)
+            {
+                PhGetWindowTextEx(ProcessNode->WindowHandle, PH_GET_WINDOW_TEXT_INTERNAL, &ProcessNode->WindowText);
+                ProcessNode->WindowHung = !!IsHungAppWindow(ProcessNode->WindowHandle);
+            }
         }
 
         ProcessNode->ValidMask |= PHPN_WINDOW;
@@ -1024,7 +1037,11 @@ static VOID PhpUpdateProcessOsContext(
     {
         HANDLE processHandle;
 
-        if (NT_SUCCESS(PhOpenProcess(&processHandle, PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ, ProcessNode->ProcessId)))
+        if (ProcessNode->ProcessItem->IsSubsystemProcess)
+        {
+            NOTHING;
+        }
+        else if (NT_SUCCESS(PhOpenProcess(&processHandle, PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ, ProcessNode->ProcessId)))
         {
             if (NT_SUCCESS(PhGetProcessSwitchContext(processHandle, &ProcessNode->OsContextGuid)))
             {
@@ -1144,7 +1161,11 @@ static VOID PhpUpdateProcessNodeAppId(
 
         PhClearReference(&ProcessNode->AppIdText);
 
-        if (PhAppResolverGetAppIdForProcess(ProcessNode->ProcessItem->ProcessId, &applicationUserModelId))
+        if (ProcessNode->ProcessItem->IsSubsystemProcess)
+        {
+            NOTHING;
+        }
+        else if (PhAppResolverGetAppIdForProcess(ProcessNode->ProcessItem->ProcessId, &applicationUserModelId))
         {
             ProcessNode->AppIdText = applicationUserModelId;
         }
@@ -1966,6 +1987,12 @@ BEGIN_SORT_FUNCTION(Critical)
 }
 END_SORT_FUNCTION
 
+BEGIN_SORT_FUNCTION(HexPid)
+{
+    sortResult = intptrcmp((LONG_PTR)processItem1->ProcessId, (LONG_PTR)processItem2->ProcessId);
+}
+END_SORT_FUNCTION
+
 BOOLEAN NTAPI PhpProcessTreeNewCallback(
     _In_ HWND hwnd,
     _In_ PH_TREENEW_MESSAGE Message,
@@ -2090,6 +2117,7 @@ BOOLEAN NTAPI PhpProcessTreeNewCallback(
                         SORT_FUNCTION(Protection),
                         SORT_FUNCTION(DesktopInfo),
                         SORT_FUNCTION(Critical),
+                        SORT_FUNCTION(HexPid),
                     };
                     int (__cdecl *sortFunction)(const void *, const void *);
 
@@ -2163,7 +2191,7 @@ BOOLEAN NTAPI PhpProcessTreeNewCallback(
                         if (PhFormatToBuffer(&format, 1, node->CpuUsageText, sizeof(node->CpuUsageText), &returnLength))
                         {
                             getCellText->Text.Buffer = node->CpuUsageText;
-                            getCellText->Text.Length = returnLength - sizeof(WCHAR); // minus null terminator
+                            getCellText->Text.Length = returnLength - sizeof(UNICODE_NULL); // minus null terminator
                         }
                     }
                     else if (cpuUsage != 0 && PhCsShowCpuBelow001)
@@ -2177,7 +2205,7 @@ BOOLEAN NTAPI PhpProcessTreeNewCallback(
                         if (PhFormatToBuffer(format, 2, node->CpuUsageText, sizeof(node->CpuUsageText), &returnLength))
                         {
                             getCellText->Text.Buffer = node->CpuUsageText;
-                            getCellText->Text.Length = returnLength - sizeof(WCHAR);
+                            getCellText->Text.Length = returnLength - sizeof(UNICODE_NULL);
                         }
                     }
                 }
@@ -2206,7 +2234,7 @@ BOOLEAN NTAPI PhpProcessTreeNewCallback(
                         if (PhFormatToBuffer(format, RTL_NUMBER_OF(format), node->IoTotalRateText, sizeof(node->IoTotalRateText), &returnLength))
                         {
                             getCellText->Text.Buffer = node->IoTotalRateText;
-                            getCellText->Text.Length = returnLength - sizeof(WCHAR);
+                            getCellText->Text.Length = returnLength - sizeof(UNICODE_NULL);
                         }
                     }
                 }
@@ -2223,7 +2251,7 @@ BOOLEAN NTAPI PhpProcessTreeNewCallback(
                     if (PhFormatToBuffer(format, RTL_NUMBER_OF(format), node->PrivateBytesText, sizeof(node->PrivateBytesText), &returnLength))
                     {
                         getCellText->Text.Buffer = node->PrivateBytesText;
-                        getCellText->Text.Length = returnLength - sizeof(WCHAR);
+                        getCellText->Text.Length = returnLength - sizeof(UNICODE_NULL);
                     }
                 }
                 break;
@@ -2277,7 +2305,7 @@ BOOLEAN NTAPI PhpProcessTreeNewCallback(
                     if (PhFormatToBuffer(format, RTL_NUMBER_OF(format), node->PrivateWsText, sizeof(node->PrivateWsText), &returnLength))
                     {
                         getCellText->Text.Buffer = node->PrivateWsText;
-                        getCellText->Text.Length = returnLength - sizeof(WCHAR);
+                        getCellText->Text.Length = returnLength - sizeof(UNICODE_NULL);
                     }
                 }
                 break;
@@ -2926,6 +2954,23 @@ BOOLEAN NTAPI PhpProcessTreeNewCallback(
                         PhInitializeStringRef(&getCellText->Text, L"Critical");
                 }
                 break;
+            case PHPRTLC_PIDHEX:
+                {
+                    if (PH_IS_REAL_PROCESS_ID(processItem->ProcessId))
+                    {
+                        PH_FORMAT format;
+                        SIZE_T returnLength;
+
+                        PhInitFormatIX(&format, HandleToUlong(processItem->ProcessId));
+
+                        if (PhFormatToBuffer(&format, 1, node->PidHexText, sizeof(node->PidHexText), &returnLength))
+                        {
+                            getCellText->Text.Buffer = node->PidHexText;
+                            getCellText->Text.Length = returnLength - sizeof(UNICODE_NULL);
+                        }
+                    }
+                }
+                break;
             default:
                 return FALSE;
             }
@@ -2994,8 +3039,11 @@ BOOLEAN NTAPI PhpProcessTreeNewCallback(
                 getNodeColor->BackColor = PhCsColorJobProcesses;
             else if (
                 PhCsUseColorServiceProcesses &&
-                ((processItem->Sid && RtlEqualSid(processItem->Sid, &PhSeLocalServiceSid)) ||
-                 processItem->ServiceList && processItem->ServiceList->Count != 0))
+                ((processItem->ServiceList && processItem->ServiceList->Count != 0) ||
+                 (processItem->Sid && RtlEqualSid(processItem->Sid, &PhSeServiceSid)) ||
+                 (processItem->Sid && RtlEqualSid(processItem->Sid, &PhSeLocalServiceSid)) ||
+                 (processItem->Sid && RtlEqualSid(processItem->Sid, &PhSeNetworkServiceSid))
+                ))
                 getNodeColor->BackColor = PhCsColorServiceProcesses;
             else if (
                 PhCsUseColorSystemProcesses &&
@@ -3530,7 +3578,10 @@ VOID PhpPopulateTableWithProcessNodes(
 
         if (i != 0)
         {
-            text = PhaCreateStringEx(getCellText.Text.Buffer, getCellText.Text.Length);
+            if (getCellText.Text.Length == 0)
+                text = PhReferenceEmptyString();
+            else
+                text = PhaCreateStringEx(getCellText.Text.Buffer, getCellText.Text.Length);
         }
         else
         {

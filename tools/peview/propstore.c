@@ -2,7 +2,7 @@
  * Process Hacker -
  *   PE viewer
  *
- * Copyright (C) 2018 dmex
+ * Copyright (C) 2018-2019 dmex
  *
  * This file is part of Process Hacker.
  *
@@ -45,6 +45,17 @@ VOID PvpPeEnumerateFilePropStore(
             PvFileName->Buffer,
             NULL,
             GPS_FASTPROPERTIESONLY,
+            &IID_IPropertyStore,
+            &propstore
+            );
+    }
+
+    if (FAILED(status))
+    {
+        status = SHGetPropertyStoreFromParsingName(
+            PvFileName->Buffer,
+            NULL,
+            GPS_DEFAULT, // required for Windows 7 (dmex)
             &IID_IPropertyStore,
             &propstore
             );

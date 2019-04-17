@@ -3,7 +3,7 @@
  *   PE viewer
  *
  * Copyright (C) 2010-2011 wj32
- * Copyright (C) 2017-2018 dmex
+ * Copyright (C) 2017-2019 dmex
  *
  * This file is part of Process Hacker.
  *
@@ -22,6 +22,13 @@
  */
 
 #include <peview.h>
+
+#define ADD_VALUE(Name, Value) \
+{ \
+    INT lvItemIndex; \
+    lvItemIndex = PhAddListViewItem(lvHandle, MAXINT, Name, NULL); \
+    PhSetListViewSubItem(lvHandle, lvItemIndex, 1, Value); \
+}
 
 PPH_STRING PvpGetPeGuardFlagsText(
     _In_ ULONG GuardFlags
@@ -58,6 +65,145 @@ PPH_STRING PvpGetPeGuardFlagsText(
     return PhFinalStringBuilderString(&stringBuilder);
 }
 
+PPH_STRING PvpGetPeEnclaveImportsText(
+    _In_ PVOID EnclaveConfig
+    )
+{
+    PH_STRING_BUILDER stringBuilder;
+    ULONG i;
+
+    PhInitializeStringBuilder(&stringBuilder, 10);
+
+    if (PvMappedImage.Magic == IMAGE_NT_OPTIONAL_HDR32_MAGIC)
+    {
+        PIMAGE_ENCLAVE_CONFIG32 enclaveConfig32 = EnclaveConfig;
+        PIMAGE_ENCLAVE_IMPORT enclaveImports;
+
+        enclaveImports = PhMappedImageRvaToVa(
+            &PvMappedImage,
+            enclaveConfig32->ImportList,
+            NULL
+            );
+
+        for (i = 0; i < enclaveConfig32->NumberOfImports; i++)
+        {
+            PSTR importName;
+
+            if (enclaveImports->ImportName == USHRT_MAX)
+                break;
+
+            if (importName = PhMappedImageRvaToVa(
+                &PvMappedImage,
+                enclaveImports->ImportName,
+                NULL
+                ))
+            {
+                PhAppendFormatStringBuilder(&stringBuilder, L"%hs, ", importName);
+            }
+
+            enclaveImports++;
+        }
+    }
+    else
+    {
+        PIMAGE_ENCLAVE_CONFIG64 enclaveConfig64 = EnclaveConfig;
+        PIMAGE_ENCLAVE_IMPORT enclaveImports;
+
+        enclaveImports = PhMappedImageRvaToVa(
+            &PvMappedImage,
+            enclaveConfig64->ImportList,
+            NULL
+            );
+
+        for (i = 0; i < enclaveConfig64->NumberOfImports; i++)
+        {
+            PSTR importName;
+
+            if (enclaveImports->ImportName == USHRT_MAX)
+                break;
+
+            if (importName = PhMappedImageRvaToVa(
+                &PvMappedImage,
+                enclaveImports->ImportName,
+                NULL
+                ))
+            {
+                PhAppendFormatStringBuilder(&stringBuilder, L"%hs, ", importName);
+            }
+
+            enclaveImports++;
+        }
+    }
+
+    if (PhEndsWithString2(stringBuilder.String, L", ", FALSE))
+        PhRemoveEndStringBuilder(&stringBuilder, 2);
+
+    return PhFinalStringBuilderString(&stringBuilder);
+}
+
+VOID PvpAddPeEnclaveConfig(
+    _In_ PVOID ImageConfig,
+    _In_ HWND lvHandle
+    )
+{
+    if (PvMappedImage.Magic == IMAGE_NT_OPTIONAL_HDR32_MAGIC)
+    {
+        PIMAGE_LOAD_CONFIG_DIRECTORY32 imageConfig32 = ImageConfig;
+        PIMAGE_ENCLAVE_CONFIG32 enclaveConfig;
+
+        if (!RTL_CONTAINS_FIELD(imageConfig32, imageConfig32->Size, EnclaveConfigurationPointer))
+            return;
+
+        enclaveConfig = PhMappedImageVaToVa(
+            &PvMappedImage,
+            (ULONG)imageConfig32->EnclaveConfigurationPointer,
+            NULL
+            );
+
+        if (enclaveConfig)
+        {
+            ADD_VALUE(L"Enclave PolicyFlags", PhaFormatUInt64(enclaveConfig->PolicyFlags, TRUE)->Buffer);
+            ADD_VALUE(L"Enclave FamilyID", PH_AUTO_T(PH_STRING, PhFormatGuid((PGUID)enclaveConfig->FamilyID))->Buffer);
+            ADD_VALUE(L"Enclave ImageID", PH_AUTO_T(PH_STRING, PhFormatGuid((PGUID)enclaveConfig->ImageID))->Buffer);
+            ADD_VALUE(L"Enclave ImageVersion", PhaFormatUInt64(enclaveConfig->ImageVersion, TRUE)->Buffer);
+            ADD_VALUE(L"Enclave SecurityVersion", PhaFormatUInt64(enclaveConfig->SecurityVersion, TRUE)->Buffer);
+            ADD_VALUE(L"Enclave EnclaveSize", PhaFormatUInt64(enclaveConfig->EnclaveSize, TRUE)->Buffer);
+            ADD_VALUE(L"Enclave NumberOfThreads", PhaFormatUInt64(enclaveConfig->NumberOfThreads, TRUE)->Buffer);
+            ADD_VALUE(L"Enclave EnclaveFlags", PhaFormatUInt64(enclaveConfig->EnclaveFlags, TRUE)->Buffer);
+            ADD_VALUE(L"Enclave NumberOfImports", PhaFormatUInt64(enclaveConfig->NumberOfImports, TRUE)->Buffer);
+            ADD_VALUE(L"Enclave Imports", PH_AUTO_T(PH_STRING, PvpGetPeEnclaveImportsText(enclaveConfig))->Buffer);
+        }
+    }
+    else
+    {
+        PIMAGE_LOAD_CONFIG_DIRECTORY64 imageConfig64 = ImageConfig;
+        PIMAGE_ENCLAVE_CONFIG64 enclaveConfig;
+
+        if (!RTL_CONTAINS_FIELD(imageConfig64, imageConfig64->Size, EnclaveConfigurationPointer))
+            return;
+
+        enclaveConfig = PhMappedImageVaToVa(
+            &PvMappedImage,
+            (ULONG)imageConfig64->EnclaveConfigurationPointer,
+            NULL
+            );
+
+        if (enclaveConfig)
+        {
+            ADD_VALUE(L"Enclave PolicyFlags", PhaFormatUInt64(enclaveConfig->PolicyFlags, TRUE)->Buffer);
+            ADD_VALUE(L"Enclave FamilyID", PH_AUTO_T(PH_STRING, PhFormatGuid((PGUID)enclaveConfig->FamilyID))->Buffer);
+            ADD_VALUE(L"Enclave ImageID", PH_AUTO_T(PH_STRING, PhFormatGuid((PGUID)enclaveConfig->ImageID))->Buffer);
+            ADD_VALUE(L"Enclave ImageVersion", PhaFormatUInt64(enclaveConfig->ImageVersion, TRUE)->Buffer);
+            ADD_VALUE(L"Enclave SecurityVersion", PhaFormatUInt64(enclaveConfig->SecurityVersion, TRUE)->Buffer);
+            ADD_VALUE(L"Enclave EnclaveSize", PhaFormatUInt64(enclaveConfig->EnclaveSize, TRUE)->Buffer);
+            ADD_VALUE(L"Enclave NumberOfThreads", PhaFormatUInt64(enclaveConfig->NumberOfThreads, TRUE)->Buffer);
+            ADD_VALUE(L"Enclave EnclaveFlags", PhaFormatUInt64(enclaveConfig->EnclaveFlags, TRUE)->Buffer);
+            ADD_VALUE(L"Enclave NumberOfImports", PhaFormatUInt64(enclaveConfig->NumberOfImports, TRUE)->Buffer);
+            ADD_VALUE(L"Enclave Imports", PH_AUTO_T(PH_STRING, PvpGetPeEnclaveImportsText(enclaveConfig))->Buffer);
+        }
+    }
+}
+
 INT_PTR CALLBACK PvpPeLoadConfigDlgProc(
     _In_ HWND hwndDlg,
     _In_ UINT uMsg,
@@ -86,13 +232,6 @@ INT_PTR CALLBACK PvpPeLoadConfigDlgProc(
             PhAddListViewColumn(lvHandle, 1, 1, 1, LVCFMT_LEFT, 170, L"Value");
             PhSetExtendedListView(lvHandle);
             PhLoadListViewColumnsFromSetting(L"ImageLoadCfgListViewColumns", lvHandle);
-
-            #define ADD_VALUE(Name, Value) \
-            { \
-                INT lvItemIndex; \
-                lvItemIndex = PhAddListViewItem(lvHandle, MAXINT, Name, NULL); \
-                PhSetListViewSubItem(lvHandle, lvItemIndex, 1, Value); \
-            }
 
             #define ADD_VALUES(Type, Config) \
             { \
@@ -139,6 +278,35 @@ INT_PTR CALLBACK PvpPeLoadConfigDlgProc(
                         ADD_VALUE(L"CFG LongJump table entry count", PhaFormatUInt64((Config)->GuardLongJumpTargetCount, TRUE)->Buffer); \
                     } \
                 } \
+                \
+                if (RTL_CONTAINS_FIELD((Config), (Config)->Size, CodeIntegrity)) \
+                { \
+                    ADD_VALUE(L"CI flags", PhaFormatString(L"0x%x", (Config)->CodeIntegrity.Flags)->Buffer); \
+                    ADD_VALUE(L"CI catalog", PhaFormatString(L"0x%Ix", (Config)->CodeIntegrity.Catalog)->Buffer); \
+                    ADD_VALUE(L"CI catalog offset", PhaFormatString(L"0x%Ix", (Config)->CodeIntegrity.CatalogOffset)->Buffer); \
+                } \
+                \
+                if (RTL_CONTAINS_FIELD((Config), (Config)->Size, DynamicValueRelocTable)) \
+                { \
+                    ADD_VALUE(L"DynamicValueRelocTable", PhaFormatString(L"0x%Ix", (Config)->DynamicValueRelocTable)->Buffer); \
+                    ADD_VALUE(L"CHPEMetadataPointer", PhaFormatString(L"0x%Ix", (Config)->CHPEMetadataPointer)->Buffer); \
+                    ADD_VALUE(L"GuardRFFailureRoutine", PhaFormatString(L"0x%Ix", (Config)->GuardRFFailureRoutine)->Buffer); \
+                    ADD_VALUE(L"GuardRFFailureRoutineFunctionPointer", PhaFormatString(L"0x%Ix", (Config)->GuardRFFailureRoutineFunctionPointer)->Buffer); \
+                } \
+                \
+                if (RTL_CONTAINS_FIELD((Config), (Config)->Size, DynamicValueRelocTableOffset)) \
+                { \
+                    ADD_VALUE(L"DynamicValueRelocTableOffset", PhaFormatString(L"0x%Ix", (Config)->DynamicValueRelocTableOffset)->Buffer); \
+                    ADD_VALUE(L"DynamicValueRelocTableSection", PhaFormatString(L"0x%Ix", (Config)->DynamicValueRelocTableSection)->Buffer); \
+                    ADD_VALUE(L"GuardRFVerifyStackPointerFunctionPointer", PhaFormatString(L"0x%Ix", (Config)->GuardRFVerifyStackPointerFunctionPointer)->Buffer); \
+                    ADD_VALUE(L"HotPatchTableOffset", PhaFormatString(L"0x%Ix", (Config)->HotPatchTableOffset)->Buffer); \
+                    ADD_VALUE(L"EnclaveConfigurationPointer", PhaFormatString(L"0x%Ix", (Config)->EnclaveConfigurationPointer)->Buffer); \
+                } \
+                \
+                if (RTL_CONTAINS_FIELD((Config), (Config)->Size, VolatileMetadataPointer)) \
+                { \
+                    ADD_VALUE(L"VolatileMetadataPointer", PhaFormatString(L"0x%Ix", (Config)->VolatileMetadataPointer)->Buffer); \
+                } \
             }
 
             if (PvMappedImage.Magic == IMAGE_NT_OPTIONAL_HDR32_MAGIC)
@@ -146,6 +314,7 @@ INT_PTR CALLBACK PvpPeLoadConfigDlgProc(
                 if (NT_SUCCESS(PhGetMappedImageLoadConfig32(&PvMappedImage, &config32)))
                 {
                     ADD_VALUES(IMAGE_LOAD_CONFIG_DIRECTORY32, config32);
+                    PvpAddPeEnclaveConfig(config32, lvHandle);
                 }
             }
             else
@@ -153,6 +322,7 @@ INT_PTR CALLBACK PvpPeLoadConfigDlgProc(
                 if (NT_SUCCESS(PhGetMappedImageLoadConfig64(&PvMappedImage, &config64)))
                 {
                     ADD_VALUES(IMAGE_LOAD_CONFIG_DIRECTORY64, config64);
+                    PvpAddPeEnclaveConfig(config64, lvHandle);
                 }
             }
 

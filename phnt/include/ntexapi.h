@@ -32,7 +32,7 @@ NTSTATUS
 NTAPI
 NtDelayExecution(
     _In_ BOOLEAN Alertable,
-    _In_ PLARGE_INTEGER DelayInterval
+    _In_opt_ PLARGE_INTEGER DelayInterval
     );
 
 // Environment values
@@ -1979,6 +1979,16 @@ typedef struct _EVENT_TRACE_PROFILE_COUNTER_INFORMATION
     HANDLE TraceHandle;
     ULONG ProfileSource[1];
 } EVENT_TRACE_PROFILE_COUNTER_INFORMATION, *PEVENT_TRACE_PROFILE_COUNTER_INFORMATION;
+
+//typedef struct _PROFILE_SOURCE_INFO
+//{
+//    ULONG NextEntryOffset;
+//    ULONG Source;
+//    ULONG MinInterval;
+//    ULONG MaxInterval;
+//    PVOID Reserved;
+//    WCHAR Description[1];
+//} PROFILE_SOURCE_INFO, *PPROFILE_SOURCE_INFO;
 
 typedef struct _EVENT_TRACE_PROFILE_LIST_INFORMATION
 {

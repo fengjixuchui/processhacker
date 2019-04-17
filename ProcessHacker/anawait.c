@@ -40,10 +40,6 @@
 
 #include <procprv.h>
 
-typedef HWND (WINAPI *_GetSendMessageReceiver)(
-    _In_ HANDLE ThreadId
-    );
-
 typedef struct _ANALYZE_WAIT_CONTEXT
 {
     BOOLEAN Found;
@@ -179,7 +175,7 @@ VOID PhUiAnalyzeWaitThread(
     }
     else
     {
-        PhShowInformation(hWnd, L"The thread does not appear to be waiting.");
+        PhShowInformation2(hWnd, L"The thread does not appear to be waiting.", L"");
     }
 
     PhDeleteStringBuilder(&context.StringBuilder);
@@ -962,7 +958,9 @@ static PPH_STRING PhpaGetSendMessageReceiver(
     _In_ HANDLE ThreadId
     )
 {
-    static _GetSendMessageReceiver GetSendMessageReceiver_I;
+    static HWND (WINAPI *GetSendMessageReceiver_I)(
+        _In_ HANDLE ThreadId
+        );
 
     HWND windowHandle;
     ULONG threadId;
@@ -1001,7 +999,7 @@ static PPH_STRING PhpaGetSendMessageReceiver(
     return PhaFormatString(L"Window 0x%Ix (%s): %s \"%s\"", windowHandle, clientIdName->Buffer, windowClass, PhGetStringOrEmpty(windowText));
 }
 
-static PPH_STRING PhpaGetAlpcInformation(
+PPH_STRING PhpaGetAlpcInformation(
     _In_ HANDLE ThreadId
     )
 {

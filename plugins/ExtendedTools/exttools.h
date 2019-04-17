@@ -16,6 +16,7 @@ extern LIST_ENTRY EtProcessBlockListHead;
 extern LIST_ENTRY EtNetworkBlockListHead;
 extern HWND ProcessTreeNewHandle;
 extern HWND NetworkTreeNewHandle;
+extern ULONG ProcessesUpdatedCount;
 
 #define PLUGIN_NAME L"ProcessHacker.ExtendedTools"
 #define SETTING_NAME_DISK_TREE_LIST_COLUMNS (PLUGIN_NAME L".DiskTreeListColumns")
@@ -36,6 +37,7 @@ extern HWND NetworkTreeNewHandle;
 #define SETTING_NAME_WSWATCH_WINDOW_POSITION (PLUGIN_NAME L".WsWatchWindowPosition")
 #define SETTING_NAME_WSWATCH_WINDOW_SIZE (PLUGIN_NAME L".WsWatchWindowSize")
 #define SETTING_NAME_WSWATCH_COLUMNS (PLUGIN_NAME L".WsWatchListColumns")
+#define SETTING_NAME_TRAYICON_GUIDS (PLUGIN_NAME L".TrayIconGuids")
 
 // Window messages
 #define ET_WM_SHOWDIALOG (WM_APP + 1)
@@ -558,8 +560,16 @@ VOID EtGpuMiniInformationInitializing(
 
 // iconext
 
+VOID EtLoadTrayIconGuids(
+    VOID
+    );
+
 VOID EtRegisterNotifyIcons(
     _In_ PPH_TRAY_ICON_POINTERS Pointers
+    );
+
+VOID EtRegisterToolbarGraphs(
+    VOID
     );
 
 // modsrv

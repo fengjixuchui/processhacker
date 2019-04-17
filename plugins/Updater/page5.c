@@ -2,7 +2,7 @@
  * Process Hacker Plugins -
  *   Update Checker Plugin
  *
- * Copyright (C) 2016 dmex
+ * Copyright (C) 2016-2019 dmex
  *
  * This file is part of Process Hacker.
  *
@@ -68,8 +68,8 @@ BOOLEAN UpdaterCheckApplicationDirectory(
     if (UpdaterCheckKphInstallState())
         return FALSE;
 
-    directory = PH_AUTO(PhGetApplicationDirectory());
-    file = PH_AUTO(PhConcatStrings(2, PhGetStringOrEmpty(directory), L"\\processhacker.update"));
+    directory = PhGetApplicationDirectory();
+    file = PhConcatStrings(2, PhGetStringOrEmpty(directory), L"\\processhacker.update");
 
     if (NT_SUCCESS(PhCreateFileWin32(
         &fileHandle,
@@ -81,10 +81,15 @@ BOOLEAN UpdaterCheckApplicationDirectory(
         FILE_NON_DIRECTORY_FILE | FILE_SYNCHRONOUS_IO_NONALERT | FILE_DELETE_ON_CLOSE
         )))
     {
+        PhDereferenceObject(file);
+        PhDereferenceObject(directory);
+
         NtClose(fileHandle);
         return TRUE;
     }
 
+    PhDereferenceObject(file);
+    PhDereferenceObject(directory);
     return FALSE;
 }
 
@@ -134,7 +139,7 @@ HRESULT CALLBACK FinalTaskDialogCallbackProc(
                 info.lpVerb = UpdaterCheckApplicationDirectory() ? NULL : L"runas";
                 info.nShow = SW_SHOW;
                 info.hwnd = hwndDlg;
-                info.fMask = SEE_MASK_NOASYNC | SEE_MASK_FLAG_NO_UI;
+                info.fMask = SEE_MASK_NOASYNC | SEE_MASK_FLAG_NO_UI | SEE_MASK_NOZONECHECKS;
 
                 ProcessHacker_PrepareForEarlyShutdown(PhMainWndHandle);
 
@@ -152,7 +157,7 @@ HRESULT CALLBACK FinalTaskDialogCallbackProc(
                     // Show error dialog.
                     if (errorCode != ERROR_CANCELLED) // Ignore UAC decline.
                     {
-                        PhShowStatus(hwndDlg, L"Unable to execute the setup.", 0, GetLastError());
+                        PhShowStatus(hwndDlg, L"Unable to execute the setup.", 0, errorCode);
 
                         if (context->StartupCheck)
                             ShowAvailableDialog(context);
@@ -191,13 +196,13 @@ VOID ShowUpdateInstallDialog(
     config.pfCallback = FinalTaskDialogCallbackProc;
     config.lpCallbackData = (LONG_PTR)Context;
     config.pButtons = TaskDialogButtonArray;
-    config.cButtons = ARRAYSIZE(TaskDialogButtonArray);
+    config.cButtons = RTL_NUMBER_OF(TaskDialogButtonArray);
 
     config.pszWindowTitle = L"Process Hacker - Updater";
     config.pszMainInstruction = L"Ready to install update?";
     config.pszContent = L"The update has been successfully downloaded and verified.\r\n\r\nClick Install to continue.";
 
-    SendMessage(Context->DialogHandle, TDM_NAVIGATE_PAGE, 0, (LPARAM)&config);
+    TaskDialogNavigatePage(Context->DialogHandle, &config);
 }
 
 VOID ShowLatestVersionDialog(
@@ -221,7 +226,7 @@ VOID ShowLatestVersionDialog(
     
     // HACK
     imageDosHeader = (PIMAGE_DOS_HEADER)NtCurrentPeb()->ImageBaseAddress;
-    imageNtHeader = (PIMAGE_NT_HEADERS)PTR_ADD_OFFSET(imageDosHeader, (ULONG)imageDosHeader->e_lfanew);
+    imageNtHeader = (PIMAGE_NT_HEADERS)PTR_ADD_OFFSET(imageDosHeader, imageDosHeader->e_lfanew);
     RtlSecondsSince1970ToTime(imageNtHeader->FileHeader.TimeDateStamp, &time);
     PhLargeIntegerToLocalSystemTime(&systemTime, &time);
 
@@ -233,7 +238,7 @@ VOID ShowLatestVersionDialog(
         PhaFormatDateTime(&systemTime)->Buffer
         )->Buffer;
 
-    SendMessage(Context->DialogHandle, TDM_NAVIGATE_PAGE, 0, (LPARAM)&config);
+    TaskDialogNavigatePage(Context->DialogHandle, &config);
 }
 
 VOID ShowNewerVersionDialog(
@@ -258,7 +263,7 @@ VOID ShowNewerVersionDialog(
         PhGetStringOrEmpty(Context->CurrentVersionString)
         )->Buffer;
 
-    SendMessage(Context->DialogHandle, TDM_NAVIGATE_PAGE, 0, (LPARAM)&config);
+    TaskDialogNavigatePage(Context->DialogHandle, &config);
 }
 
 VOID ShowUpdateFailedDialog(
@@ -313,5 +318,5 @@ VOID ShowUpdateFailedDialog(
     config.pfCallback = FinalTaskDialogCallbackProc;
     config.lpCallbackData = (LONG_PTR)Context;
 
-    SendMessage(Context->DialogHandle, TDM_NAVIGATE_PAGE, 0, (LPARAM)&config);
+    TaskDialogNavigatePage(Context->DialogHandle, &config);
 }

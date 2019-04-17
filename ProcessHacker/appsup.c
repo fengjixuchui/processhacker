@@ -76,18 +76,21 @@ BOOLEAN PhIsProcessSuspended(
     _In_ HANDLE ProcessId
     )
 {
+    BOOLEAN suspended = FALSE;
     PVOID processes;
     PSYSTEM_PROCESS_INFORMATION process;
 
     if (NT_SUCCESS(PhEnumProcesses(&processes)))
     {
         if (process = PhFindProcessInformation(processes, ProcessId))
-            return PhGetProcessIsSuspended(process);
+        {
+            suspended = PhGetProcessIsSuspended(process);
+        }
 
         PhFree(processes);
     }
 
-    return FALSE;
+    return suspended;
 }
 
 /**
@@ -310,7 +313,7 @@ PH_KNOWN_PROCESS_TYPE PhGetProcessKnownTypeEx(
     BOOLEAN isWow64 = FALSE;
 #endif
 
-    if (ProcessId == SYSTEM_PROCESS_ID)
+    if (ProcessId == SYSTEM_PROCESS_ID || ProcessId == SYSTEM_IDLE_PROCESS_ID)
         return SystemProcessType;
 
     if (PhIsNullOrEmptyString(FileName))
@@ -938,7 +941,7 @@ VOID PhCopyListViewInfoTip(
         Tip->Buffer,
         copyLength * 2
         );
-    GetInfoTip->pszText[copyIndex + copyLength] = 0;
+    GetInfoTip->pszText[copyIndex + copyLength] = UNICODE_NULL;
 }
 
 VOID PhCopyListView(
@@ -1097,7 +1100,6 @@ VOID PhWritePhTextHeader(
     PPH_STRING version;
     LARGE_INTEGER time;
     SYSTEMTIME systemTime;
-    PPH_STRING dateString;
     PPH_STRING timeString;
 
     PhWriteStringAsUtf8FileStream2(FileStream, L"Process Hacker ");
@@ -1122,10 +1124,8 @@ VOID PhWritePhTextHeader(
     PhQuerySystemTime(&time);
     PhLargeIntegerToLocalSystemTime(&systemTime, &time);
 
-    dateString = PhFormatDate(&systemTime, NULL);
-    timeString = PhFormatTime(&systemTime, NULL);
-    PhWriteStringFormatAsUtf8FileStream(FileStream, L"\r\n%s %s\r\n\r\n", dateString->Buffer, timeString->Buffer);
-    PhDereferenceObject(dateString);
+    timeString = PhFormatDateTime(&systemTime);
+    PhWriteStringFormatAsUtf8FileStream(FileStream, L"\r\n%s\r\n\r\n", timeString->Buffer);
     PhDereferenceObject(timeString);
 }
 
@@ -1314,15 +1314,8 @@ BOOLEAN PhCreateProcessIgnoreIfeoDebugger(
     )
 {
     BOOLEAN result;
-    BOOL (NTAPI *debugSetProcessKillOnExit)(BOOL);
-    BOOL (NTAPI *debugActiveProcessStop)(ULONG);
     BOOLEAN originalValue;
-    STARTUPINFO startupInfo;
-    PROCESS_INFORMATION processInfo;
-
-    if (!(debugSetProcessKillOnExit = PhGetDllProcedureAddress(L"kernel32.dll", "DebugSetProcessKillOnExit", 0)) ||
-        !(debugActiveProcessStop = PhGetDllProcedureAddress(L"kernel32.dll", "DebugActiveProcessStop", 0)))
-        return FALSE;
+    HANDLE processHandle;
 
     result = FALSE;
 
@@ -1331,25 +1324,45 @@ BOOLEAN PhCreateProcessIgnoreIfeoDebugger(
     NtCurrentPeb()->ReadImageFileExecOptions = FALSE;
     RtlLeaveCriticalSection(NtCurrentPeb()->FastPebLock);
 
-    memset(&startupInfo, 0, sizeof(STARTUPINFO));
-    startupInfo.cb = sizeof(STARTUPINFO);
-    memset(&processInfo, 0, sizeof(PROCESS_INFORMATION));
-
     // The combination of ReadImageFileExecOptions = FALSE and the DEBUG_PROCESS flag
-    // allows us to skip the Debugger IFEO value.
-    if (CreateProcess(FileName, NULL, NULL, NULL, FALSE, DEBUG_PROCESS | DEBUG_ONLY_THIS_PROCESS, NULL, NULL, &startupInfo, &processInfo))
+    // allows us to skip the Debugger IFEO value. (wj32)
+
+    if (NT_SUCCESS(PhCreateProcessWin32(
+        FileName,
+        NULL,
+        NULL,
+        NULL,
+        PH_CREATE_PROCESS_DEBUG | PH_CREATE_PROCESS_DEBUG_ONLY_THIS_PROCESS,
+        NULL,
+        &processHandle,
+        NULL
+        )))
     {
-        // Stop debugging the process now.
-        debugSetProcessKillOnExit(FALSE);
-        debugActiveProcessStop(processInfo.dwProcessId);
+        HANDLE debugObjectHandle;
+
+        if (NT_SUCCESS(PhGetProcessDebugObject(
+            processHandle,
+            &debugObjectHandle
+            )))
+        {
+            // Disable kill-on-close.
+            if (NT_SUCCESS(PhSetDebugKillProcessOnExit(
+                debugObjectHandle,
+                FALSE
+                )))
+            {
+                // Stop debugging the process now.
+                NtRemoveProcessDebug(processHandle, debugObjectHandle);
+            }
+
+            NtClose(debugObjectHandle);
+        }
+
         result = TRUE;
+
+        NtClose(processHandle);
     }
 
-    if (processInfo.hProcess)
-        NtClose(processInfo.hProcess);
-    if (processInfo.hThread)
-        NtClose(processInfo.hThread);
-    
     if (originalValue)
     {
         RtlEnterCriticalSection(NtCurrentPeb()->FastPebLock);
@@ -1953,11 +1966,11 @@ BOOLEAN PhpSelectFavoriteInRegedit(
     for (i = 3; i < count; i++)
     {
         MENUITEMINFO info = { sizeof(MENUITEMINFO) };
-        WCHAR buffer[32];
+        WCHAR buffer[MAX_PATH];
 
         info.fMask = MIIM_ID | MIIM_STRING;
         info.dwTypeData = buffer;
-        info.cch = sizeof(buffer) / sizeof(WCHAR);
+        info.cch = RTL_NUMBER_OF(buffer);
         GetMenuItemInfo(favoritesMenu, i, TRUE, &info);
 
         if (info.cch == FavoriteName->Length / sizeof(WCHAR))
@@ -1991,7 +2004,7 @@ BOOLEAN PhpSelectFavoriteInRegedit(
         PostMessage(RegeditWindow, WM_MENUSELECT, MAKEWPARAM(0, 0xffff), 0);
 
     // Bring regedit to the top.
-    if (IsIconic(RegeditWindow))
+    if (IsMinimized(RegeditWindow))
     {
         ShowWindow(RegeditWindow, SW_RESTORE);
         SetForegroundWindow(RegeditWindow);
@@ -2058,8 +2071,8 @@ BOOLEAN PhShellOpenKey2(
     RtlInitUnicodeString(&valueName, favoriteName);
     PhUnicodeStringToStringRef(&valueName, &valueNameSr);
 
-    expandedKeyName = PhExpandKeyName(KeyName, TRUE);
-    NtSetValueKey(favoritesKeyHandle, &valueName, 0, REG_SZ, expandedKeyName->Buffer, (ULONG)expandedKeyName->Length + 2);
+    expandedKeyName = PhExpandKeyName(KeyName, FALSE);
+    NtSetValueKey(favoritesKeyHandle, &valueName, 0, REG_SZ, expandedKeyName->Buffer, (ULONG)expandedKeyName->Length + sizeof(UNICODE_NULL));
     PhDereferenceObject(expandedKeyName);
 
     // Select our entry in regedit.
@@ -2126,3 +2139,4 @@ HBITMAP PhGetShieldBitmap(
 
     return shieldBitmap;
 }
+

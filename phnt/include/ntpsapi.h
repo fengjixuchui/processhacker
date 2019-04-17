@@ -151,7 +151,7 @@ typedef enum _PROCESSINFOCLASS
     ProcessHandleInformation, // q: PROCESS_HANDLE_SNAPSHOT_INFORMATION // since WIN8
     ProcessMitigationPolicy, // s: PROCESS_MITIGATION_POLICY_INFORMATION
     ProcessDynamicFunctionTableInformation,
-    ProcessHandleCheckingMode,
+    ProcessHandleCheckingMode, // qs: ULONG; s: 0 disables, otherwise enables
     ProcessKeepAliveCount, // q: PROCESS_KEEPALIVE_COUNT_INFORMATION
     ProcessRevokeFileHandles, // s: PROCESS_REVOKE_FILE_HANDLES_INFORMATION
     ProcessWorkingSetControl, // s: PROCESS_WORKING_SET_CONTROL
@@ -245,7 +245,7 @@ typedef enum _THREADINFOCLASS
     ThreadSystemThreadInformation, // q: SYSTEM_THREAD_INFORMATION // 40
     ThreadActualGroupAffinity, // since THRESHOLD2
     ThreadDynamicCodePolicyInfo,
-    ThreadExplicitCaseSensitivity,
+    ThreadExplicitCaseSensitivity, // qs: ULONG; s: 0 disables, otherwise enables
     ThreadWorkOnBehalfTicket,
     ThreadSubsystemInformation, // q: SUBSYSTEM_INFORMATION_TYPE // since REDSTONE2
     ThreadDbgkWerReportActive,
@@ -646,6 +646,7 @@ typedef struct _PROCESS_MITIGATION_POLICY_INFORMATION
         PROCESS_MITIGATION_SYSTEM_CALL_FILTER_POLICY SystemCallFilterPolicy;
         PROCESS_MITIGATION_PAYLOAD_RESTRICTION_POLICY PayloadRestrictionPolicy;
         PROCESS_MITIGATION_CHILD_PROCESS_POLICY ChildProcessPolicy;
+        PROCESS_MITIGATION_SIDE_CHANNEL_ISOLATION_POLICY SideChannelIsolationPolicy;
     };
 } PROCESS_MITIGATION_POLICY_INFORMATION, *PPROCESS_MITIGATION_POLICY_INFORMATION;
 
@@ -1015,9 +1016,16 @@ typedef struct _THREAD_UMS_INFORMATION
     THREAD_UMS_INFORMATION_COMMAND Command;
     PRTL_UMS_COMPLETION_LIST CompletionList;
     PRTL_UMS_CONTEXT UmsContext;
-    ULONG Flags;
-    ULONG IsUmsSchedulerThread;
-    ULONG IsUmsWorkerThread;
+    union
+    {
+        ULONG Flags;
+        struct
+        {
+            ULONG IsUmsSchedulerThread : 1;
+            ULONG IsUmsWorkerThread : 1;
+            ULONG SpareBits : 30;
+        };
+    };
 } THREAD_UMS_INFORMATION, *PTHREAD_UMS_INFORMATION;
 
 // private

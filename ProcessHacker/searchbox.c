@@ -34,9 +34,11 @@ typedef struct _EDIT_CONTEXT
         ULONG Flags;
         struct
         {
+            ULONG ThemeSupport : 1;
             ULONG Hot : 1;
             ULONG Pushed : 1;
-            ULONG Spare : 30;
+            ULONG ColorMode : 8;
+            ULONG Spare : 21;
         };
     };
 
@@ -47,8 +49,7 @@ typedef struct _EDIT_CONTEXT
     HWND WindowHandle;
     WNDPROC DefaultWindowProc;
     HFONT WindowFont;
-    HICON BitmapActive;
-    HICON BitmapInactive;
+    HIMAGELIST ImageListHandle;
     HBRUSH BrushNormal;
     HBRUSH BrushPushed;
     HBRUSH BrushHot;
@@ -92,6 +93,7 @@ VOID PhpSearchInitializeTheme(
     Context->BrushNormal = GetSysColorBrush(COLOR_WINDOW);
     Context->BrushHot = CreateSolidBrush(RGB(205, 232, 255));
     Context->BrushPushed = CreateSolidBrush(RGB(153, 209, 255));
+    Context->ColorMode = PhGetIntegerSetting(L"GraphColorMode");
 
     if (IsThemeActive())
     {
@@ -133,27 +135,33 @@ VOID PhpSearchInitializeImages(
 
     Context->ImageWidth = GetSystemMetrics(SM_CXSMICON) + 4;
     Context->ImageHeight = GetSystemMetrics(SM_CYSMICON) + 4;
+    Context->ImageListHandle = ImageList_Create(
+        Context->ImageWidth,
+        Context->ImageHeight,
+        ILC_COLOR32,
+        2,
+        0
+        );
+    ImageList_SetImageCount(Context->ImageListHandle, 2);
 
     if (bitmap = PhLoadPngImageFromResource(PhInstanceHandle, Context->ImageWidth, Context->ImageHeight, MAKEINTRESOURCE(IDB_SEARCH_ACTIVE), TRUE))
     {
-        Context->BitmapActive = PhpSearchBitmapToIcon(bitmap, Context->ImageWidth, Context->ImageHeight);
+        ImageList_Replace(Context->ImageListHandle, 0, bitmap, NULL);
         DeleteObject(bitmap);
     }
-    else if (bitmap = LoadImage(PhInstanceHandle, MAKEINTRESOURCE(IDB_SEARCH_ACTIVE_BMP), IMAGE_BITMAP, 0, 0, 0))
+    else
     {
-        Context->BitmapActive = PhpSearchBitmapToIcon(bitmap, Context->ImageWidth, Context->ImageHeight);
-        DeleteObject(bitmap);
+        PhSetImageListBitmap(Context->ImageListHandle, 0, PhInstanceHandle, MAKEINTRESOURCE(IDB_SEARCH_ACTIVE_BMP));
     }
 
     if (bitmap = PhLoadPngImageFromResource(PhInstanceHandle, Context->ImageWidth, Context->ImageHeight, MAKEINTRESOURCE(IDB_SEARCH_INACTIVE), TRUE))
     {
-        Context->BitmapInactive = PhpSearchBitmapToIcon(bitmap, Context->ImageWidth, Context->ImageHeight);
+        ImageList_Replace(Context->ImageListHandle, 1, bitmap, NULL);
         DeleteObject(bitmap);
     }
-    else if (bitmap = LoadImage(PhInstanceHandle, MAKEINTRESOURCE(IDB_SEARCH_INACTIVE_BMP), IMAGE_BITMAP, 0, 0, 0))
+    else
     {
-        Context->BitmapInactive = PhpSearchBitmapToIcon(bitmap, Context->ImageWidth, Context->ImageHeight);
-        DeleteObject(bitmap);
+        PhSetImageListBitmap(Context->ImageListHandle, 1, PhInstanceHandle, MAKEINTRESOURCE(IDB_SEARCH_INACTIVE_BMP));
     }
 }
 
@@ -170,6 +178,7 @@ VOID PhpSearchGetButtonRect(
 
 VOID PhpSearchDrawButton(
     _Inout_ PEDIT_CONTEXT Context,
+    _In_ RECT WindowRect,
     _In_ RECT ButtonRect
     )
 {
@@ -193,45 +202,91 @@ VOID PhpSearchDrawButton(
 
     if (Context->Pushed)
     {
-        FillRect(bufferDc, &bufferRect, Context->BrushPushed);
-        //FrameRect(bufferDc, &bufferRect, CreateSolidBrush(RGB(0xff, 0, 0)));
+        if (Context->ThemeSupport)
+        {
+            switch (Context->ColorMode)
+            {
+            case 0: // New colors
+                FillRect(bufferDc, &bufferRect, Context->BrushPushed);
+                break;
+            case 1: // Old colors
+                SetTextColor(bufferDc, GetSysColor(COLOR_HIGHLIGHTTEXT));
+                SetDCBrushColor(bufferDc, RGB(99, 99, 99));
+                FillRect(bufferDc, &bufferRect, GetStockObject(DC_BRUSH));
+                break;
+            }
+        }
+        else
+        {
+            FillRect(bufferDc, &bufferRect, Context->BrushPushed);
+            //FrameRect(bufferDc, &bufferRect, CreateSolidBrush(RGB(0xff, 0, 0)));
+        }
     }
     else if (Context->Hot)
     {
-        FillRect(bufferDc, &bufferRect, Context->BrushHot);
-        //FrameRect(bufferDc, &bufferRect, CreateSolidBrush(RGB(38, 160, 218)));
+        if (Context->ThemeSupport)
+        {
+            switch (Context->ColorMode)
+            {
+            case 0: // New colors
+                FillRect(bufferDc, &bufferRect, Context->BrushHot);
+                break;
+            case 1: // Old colors
+                SetTextColor(bufferDc, GetSysColor(COLOR_HIGHLIGHTTEXT));
+                SetDCBrushColor(bufferDc, RGB(78, 78, 78));
+                FillRect(bufferDc, &bufferRect, GetStockObject(DC_BRUSH));
+                break;
+            }
+        }
+        else
+        {
+            FillRect(bufferDc, &bufferRect, Context->BrushHot);
+            //FrameRect(bufferDc, &bufferRect, CreateSolidBrush(RGB(38, 160, 218)));
+        }
     }
     else
     {
-        FillRect(bufferDc, &bufferRect, Context->BrushNormal);
+        if (Context->ThemeSupport)
+        {
+            switch (Context->ColorMode)
+            {
+            case 0: // New colors
+                FillRect(bufferDc, &bufferRect, Context->BrushNormal);
+                break;
+            case 1: // Old colors
+                SetTextColor(bufferDc, GetSysColor(COLOR_HIGHLIGHTTEXT));
+                SetDCBrushColor(bufferDc, RGB(60, 60, 60));
+                FillRect(bufferDc, &bufferRect, GetStockObject(DC_BRUSH));
+                break;
+            }
+
+        }
+        else
+        {
+            FillRect(bufferDc, &bufferRect, Context->BrushNormal);
+        }
     }
 
     if (Edit_GetTextLength(Context->WindowHandle) > 0)
     {
-        DrawIconEx(
+        ImageList_Draw(
+            Context->ImageListHandle,
+            0,
             bufferDc,
             bufferRect.left + 1, // offset
             bufferRect.top,
-            Context->BitmapActive,
-            Context->ImageWidth,
-            Context->ImageHeight,
-            0,
-            NULL,
-            DI_NORMAL
+            ILD_TRANSPARENT
             );
     }
     else
     {
-        DrawIconEx(
+        ImageList_Draw(
+            Context->ImageListHandle,
+            1,
             bufferDc,
             bufferRect.left + 2, // offset
             bufferRect.top + 1, // offset
-            Context->BitmapInactive,
-            Context->ImageWidth,
-            Context->ImageHeight,
-            0,
-            NULL,
-            DI_NORMAL
+            ILD_TRANSPARENT
             );
     }
 
@@ -239,6 +294,78 @@ VOID PhpSearchDrawButton(
     SelectObject(bufferDc, oldBufferBitmap);
     DeleteObject(bufferBitmap);
     DeleteDC(bufferDc);
+
+    if (Context->ThemeSupport) // HACK
+    {
+        if (GetFocus() == Context->WindowHandle)
+        {
+            switch (Context->ColorMode)
+            {
+            case 0: // New colors
+                SetDCBrushColor(hdc, RGB(0, 0, 0));
+                break;
+            case 1: // Old colors
+                SetDCBrushColor(hdc, RGB(65, 65, 65));
+                break;
+            }
+
+            SelectObject(hdc, GetStockObject(DC_BRUSH));
+            PatBlt(hdc, WindowRect.left, WindowRect.top, 1, WindowRect.bottom - WindowRect.top, PATCOPY);
+            PatBlt(hdc, WindowRect.right - 1, WindowRect.top, 1, WindowRect.bottom - WindowRect.top, PATCOPY);
+            PatBlt(hdc, WindowRect.left, WindowRect.top, WindowRect.right - WindowRect.left, 1, PATCOPY);
+            PatBlt(hdc, WindowRect.left, WindowRect.bottom - 1, WindowRect.right - WindowRect.left, 1, PATCOPY);
+
+            switch (Context->ColorMode)
+            {
+            case 0: // New colors
+                SetDCBrushColor(hdc, RGB(0xff, 0xff, 0xff));
+                break;
+            case 1: // Old colors
+                SetDCBrushColor(hdc, RGB(60, 60, 60));
+                break;
+            }
+
+            SelectObject(hdc, GetStockObject(DC_BRUSH));
+            PatBlt(hdc, WindowRect.left + 1, WindowRect.top + 1, 1, WindowRect.bottom - WindowRect.top - 2, PATCOPY);
+            PatBlt(hdc, WindowRect.right - 2, WindowRect.top + 1, 1, WindowRect.bottom - WindowRect.top - 2, PATCOPY);
+            PatBlt(hdc, WindowRect.left + 1, WindowRect.top + 1, WindowRect.right - WindowRect.left - 2, 1, PATCOPY);
+            PatBlt(hdc, WindowRect.left + 1, WindowRect.bottom - 2, WindowRect.right - WindowRect.left - 2, 1, PATCOPY);
+        }
+        else
+        {       
+            switch (Context->ColorMode)
+            {
+            case 0: // New colors
+                SetDCBrushColor(hdc, RGB(0, 0, 0));
+                break;
+            case 1: // Old colors
+                SetDCBrushColor(hdc, RGB(65, 65, 65));
+                break;
+            }
+
+            SelectObject(hdc, GetStockObject(DC_BRUSH));
+            PatBlt(hdc, WindowRect.left, WindowRect.top, 1, WindowRect.bottom - WindowRect.top, PATCOPY);
+            PatBlt(hdc, WindowRect.right - 1, WindowRect.top, 1, WindowRect.bottom - WindowRect.top, PATCOPY);
+            PatBlt(hdc, WindowRect.left, WindowRect.top, WindowRect.right - WindowRect.left, 1, PATCOPY);
+            PatBlt(hdc, WindowRect.left, WindowRect.bottom - 1, WindowRect.right - WindowRect.left, 1, PATCOPY);
+
+            switch (Context->ColorMode)
+            {
+            case 0: // New colors
+                SetDCBrushColor(hdc, RGB(0xff, 0xff, 0xff));
+                break;
+            case 1: // Old colors
+                SetDCBrushColor(hdc, RGB(60, 60, 60));
+                break;
+            }
+
+            SelectObject(hdc, GetStockObject(DC_BRUSH));
+            PatBlt(hdc, WindowRect.left + 1, WindowRect.top + 1, 1, WindowRect.bottom - WindowRect.top - 2, PATCOPY);
+            PatBlt(hdc, WindowRect.right - 2, WindowRect.top + 1, 1, WindowRect.bottom - WindowRect.top - 2, PATCOPY);
+            PatBlt(hdc, WindowRect.left + 1, WindowRect.top + 1, WindowRect.right - WindowRect.left - 2, 1, PATCOPY);
+            PatBlt(hdc, WindowRect.left + 1, WindowRect.bottom - 2, WindowRect.right - WindowRect.left - 2, 1, PATCOPY);
+        }
+    }
 
     ReleaseDC(Context->WindowHandle, hdc);
 }
@@ -253,7 +380,7 @@ LRESULT CALLBACK PhpSearchWndSubclassProc(
     PEDIT_CONTEXT context;
     WNDPROC oldWndProc;
 
-    if (!(context = PhGetWindowContext(hWnd, 10)))
+    if (!(context = PhGetWindowContext(hWnd, SHRT_MAX)))
         return 0;
 
     oldWndProc = context->DefaultWindowProc;
@@ -265,10 +392,19 @@ LRESULT CALLBACK PhpSearchWndSubclassProc(
             PhpSearchFreeTheme(context);
 
             if (context->WindowFont)
+            {
                 DeleteObject(context->WindowFont);
+                context->WindowFont = NULL;
+            }
+
+            if (context->ImageListHandle)
+            {
+                ImageList_Destroy(context->ImageListHandle);
+                context->ImageListHandle = NULL;
+            }
 
             SetWindowLongPtr(hWnd, GWLP_WNDPROC, (LONG_PTR)oldWndProc);
-            PhRemoveWindowContext(hWnd, 10);
+            PhRemoveWindowContext(hWnd, SHRT_MAX);
             PhFree(context);
         }
         break;
@@ -288,6 +424,7 @@ LRESULT CALLBACK PhpSearchWndSubclassProc(
     case WM_NCPAINT:
         {
             RECT windowRect;
+            RECT buttonRect;
 
             // Let Windows handle the non-client defaults.
             CallWindowProc(oldWndProc, hWnd, uMsg, wParam, lParam);
@@ -297,12 +434,13 @@ LRESULT CALLBACK PhpSearchWndSubclassProc(
 
             // Adjust the coordinates (start from 0,0).
             OffsetRect(&windowRect, -windowRect.left, -windowRect.top);
+            buttonRect = windowRect;
 
             // Get the position of the inserted button.
-            PhpSearchGetButtonRect(context, &windowRect);
+            PhpSearchGetButtonRect(context, &buttonRect);
 
             // Draw the button.
-            PhpSearchDrawButton(context, windowRect);
+            PhpSearchDrawButton(context, windowRect, buttonRect);
         }
         return 0;
     case WM_NCHITTEST:
@@ -523,6 +661,8 @@ VOID PhCreateSearchControl(
     memset(context, 0, sizeof(EDIT_CONTEXT));
 
     context->WindowHandle = WindowHandle;
+    context->ThemeSupport = !!PhGetIntegerSetting(L"EnableThemeSupport"); // HACK
+    context->ColorMode = PhGetIntegerSetting(L"GraphColorMode");
 
     //PhpSearchInitializeTheme(context);
     PhpSearchInitializeImages(context);
@@ -533,7 +673,7 @@ VOID PhCreateSearchControl(
 
     // Subclass the Edit control window procedure.
     context->DefaultWindowProc = (WNDPROC)GetWindowLongPtr(WindowHandle, GWLP_WNDPROC);
-    PhSetWindowContext(WindowHandle, 10, context);
+    PhSetWindowContext(WindowHandle, SHRT_MAX, context);
     SetWindowLongPtr(WindowHandle, GWLP_WNDPROC, (LONG_PTR)PhpSearchWndSubclassProc);
 
     // Initialize the theme parameters.

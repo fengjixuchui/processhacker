@@ -46,7 +46,7 @@ VOID PhGetMemoryProtectionString(
 
     if (!Protection)
     {
-        String[0] = 0;
+        String[0] = UNICODE_NULL;
         return;
     }
 
@@ -545,7 +545,7 @@ NTSTATUS PhpUpdateMemoryRegionTypes(
 
     PhDereferenceObject(ntdllFileName);
 
-    if (NT_SUCCESS(status) && ldrInitBlock.Size)
+    if (NT_SUCCESS(status) && ldrInitBlock.Size != 0)
     {
         PVOID cfgBitmapAddress = NULL;
         PVOID cfgBitmapWow64Address = NULL;

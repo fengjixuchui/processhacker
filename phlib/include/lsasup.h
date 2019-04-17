@@ -56,6 +56,15 @@ PhLookupSid(
     );
 
 PHLIBAPI
+VOID
+NTAPI
+PhLookupSids(
+    _In_ ULONG Count,
+    _In_ PSID *Sids,
+    _Out_ PPH_STRING **FullNames
+    );
+
+PHLIBAPI
 NTSTATUS
 NTAPI
 PhLookupName(
@@ -87,6 +96,20 @@ NTAPI
 PhGetTokenUserString(
     _In_ HANDLE TokenHandle,
     _In_ BOOLEAN IncludeDomain
+    );
+
+PHLIBAPI
+PPH_STRING
+NTAPI
+PhGetCapabilitySidName(
+    _In_ PSID CapabilitySid
+    );
+
+PHLIBAPI
+PPH_STRING
+NTAPI
+PhGetCapabilityGuidName(
+    _In_ PPH_STRING GuidString
     );
 
 #ifdef __cplusplus

@@ -742,8 +742,8 @@ typedef struct _PH_RELATIVE_BYTESREF
     ULONG Offset;
 } PH_RELATIVE_BYTESREF, *PPH_RELATIVE_BYTESREF, PH_RELATIVE_STRINGREF, *PPH_RELATIVE_STRINGREF;
 
-#define PH_STRINGREF_INIT(String) { sizeof(String) - sizeof(WCHAR), (String) }
-#define PH_BYTESREF_INIT(String) { sizeof(String) - sizeof(CHAR), (String) }
+#define PH_STRINGREF_INIT(String) { sizeof(String) - sizeof(UNICODE_NULL), (String) }
+#define PH_BYTESREF_INIT(String) { sizeof(String) - sizeof(ANSI_NULL), (String) }
 
 FORCEINLINE
 VOID
@@ -2956,7 +2956,7 @@ PhNextEnumHashtable(
         entry = (PPH_HASHTABLE_ENTRY)Context->Current;
         Context->Current += Context->Step;
 
-        if (entry->HashCode != -1)
+        if (entry->HashCode != ULONG_MAX)
             return &entry->Body;
     }
 

@@ -164,8 +164,10 @@ typedef struct _PH_THREADS_CONTEXT
     PH_CALLBACK_REGISTRATION LoadingStateChangedEventRegistration;
 
     HWND WindowHandle;
+    HWND SearchboxHandle;
 // end_phapppub
-
+    PPH_STRING SearchboxText;
+    PPH_TN_FILTER_ENTRY FilterEntry;
     union
     {
         PH_THREAD_LIST_CONTEXT ListContext;
@@ -347,7 +349,9 @@ typedef struct _PH_ENVIRONMENT_CONTEXT
             ULONG HighlightProcessEnvironment : 1;
             ULONG HighlightUserEnvironment : 1;
             ULONG HighlightSystemEnvironment : 1;
-            ULONG Spare : 25;
+            ULONG HideCmdTypeEnvironment : 1;
+            ULONG HighlightCmdEnvironment : 1;
+            ULONG Spare : 23;
         };
     };
 

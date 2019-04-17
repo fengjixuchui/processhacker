@@ -28,8 +28,19 @@ typedef enum _PH_THREAD_TREELIST_COLUMN
     PH_THREAD_TREELIST_COLUMN_USERTIME,
     PH_THREAD_TREELIST_COLUMN_IDEALPROCESSOR,
     PH_THREAD_TREELIST_COLUMN_CRITICAL,
+    PH_THREAD_TREELIST_COLUMN_TIDHEX,
     PH_THREAD_TREELIST_COLUMN_MAXIMUM
 } PH_THREAD_TREELIST_COLUMN;
+
+typedef enum _PH_THREAD_TREELIST_MENUITEM
+{
+    PH_THREAD_TREELIST_MENUITEM_HIDE_SUSPENDED = 1,
+    PH_THREAD_TREELIST_MENUITEM_HIDE_GUITHREADS,
+    PH_THREAD_TREELIST_MENUITEM_HIDE_UNKNOWNSTARTADDRESS,
+    PH_THREAD_TREELIST_MENUITEM_HIGHLIGHT_SUSPENDED,
+    PH_THREAD_TREELIST_MENUITEM_HIGHLIGHT_GUITHREADS,
+    PH_THREAD_TREELIST_MENUITEM_MAXIMUM
+} PH_THREAD_TREELIST_MENUITEM;
 
 // begin_phapppub
 typedef struct _PH_THREAD_NODE
@@ -64,6 +75,7 @@ typedef struct _PH_THREAD_NODE
     WCHAR KernelTimeText[PH_TIMESPAN_STR_LEN_1];
     WCHAR UserTimeText[PH_TIMESPAN_STR_LEN_1];
     WCHAR IdealProcessorText[PH_INT32_STR_LEN + 1 + PH_INT32_STR_LEN + 1];
+    WCHAR ThreadIdHexText[PH_INT32_STR_LEN_1];
 // begin_phapppub
 } PH_THREAD_NODE, *PPH_THREAD_NODE;
 // end_phapppub
@@ -75,14 +87,29 @@ typedef struct _PH_THREAD_LIST_CONTEXT
     ULONG TreeNewSortColumn;
     PH_SORT_ORDER TreeNewSortOrder;
     PH_CM_MANAGER Cm;
-    BOOLEAN UseCycleTime;
-    BOOLEAN HasServices;
 
     PPH_HASHTABLE NodeHashtable;
     PPH_LIST NodeList;
-
-    BOOLEAN EnableStateHighlighting;
     PPH_POINTER_LIST NodeStateList;
+    PH_TN_FILTER_SUPPORT TreeFilterSupport;
+
+    union
+    {
+        ULONG Flags;
+        struct
+        {
+            ULONG EnableStateHighlighting : 1;
+            ULONG UseCycleTime : 1;
+            ULONG HasServices : 1;
+
+            ULONG HideSuspended : 1;
+            ULONG HideGuiThreads : 1;
+            ULONG HighlightSuspended : 1;
+            ULONG HighlightGuiThreads : 1;
+
+            ULONG Spare : 25;
+        };
+    };
 } PH_THREAD_LIST_CONTEXT, *PPH_THREAD_LIST_CONTEXT;
 
 VOID PhInitializeThreadList(
@@ -101,6 +128,11 @@ VOID PhLoadSettingsThreadList(
 
 VOID PhSaveSettingsThreadList(
     _Inout_ PPH_THREAD_LIST_CONTEXT Context
+    );
+
+VOID PhSetOptionsThreadList(
+    _Inout_ PPH_THREAD_LIST_CONTEXT Context,
+    _In_ ULONG Options
     );
 
 PPH_THREAD_NODE PhAddThreadNode(

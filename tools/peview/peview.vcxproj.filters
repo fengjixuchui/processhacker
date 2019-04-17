@@ -90,6 +90,18 @@
     <ClCompile Include="attributes.c">
       <Filter>Source Files\Pages</Filter>
     </ClCompile>
+    <ClCompile Include="links.c">
+      <Filter>Source Files\Pages\Windows</Filter>
+    </ClCompile>
+    <ClCompile Include="processes.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="exlfdynamic.c">
+      <Filter>Source Files\Pages\Linux</Filter>
+    </ClCompile>
+    <ClCompile Include="tlsprp.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="include\peview.h">
@@ -132,6 +144,9 @@
       <Filter>Resource Files</Filter>
     </Image>
     <Image Include="resources\inactive_search.bmp">
+      <Filter>Resource Files</Filter>
+    </Image>
+    <Image Include="resources\application.ico">
       <Filter>Resource Files</Filter>
     </Image>
   </ItemGroup>

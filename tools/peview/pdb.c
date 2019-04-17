@@ -211,7 +211,7 @@ BOOLEAN PdbGetSymbolTypedefType(
     Info->TypeIndex = typeIndex;
 
     wcsncpy(Info->Name, symbolName, ARRAYSIZE(Info->Name));
-    Info->Name[ARRAYSIZE(Info->Name) - 1] = 0;
+    Info->Name[ARRAYSIZE(Info->Name) - 1] = UNICODE_NULL;
     LocalFree(symbolName);
 
     return TRUE;
@@ -235,7 +235,7 @@ BOOLEAN PdbGetSymbolEnumType(
         return FALSE;
 
     wcsncpy(Info->Name, symbolName, ARRAYSIZE(Info->Name));
-    Info->Name[ARRAYSIZE(Info->Name) - 1] = 0;
+    Info->Name[ARRAYSIZE(Info->Name) - 1] = UNICODE_NULL;
     LocalFree(symbolName);
 
     // Type index ("typeId" in DIA)
@@ -367,7 +367,7 @@ BOOLEAN PdbGetSymbolUDTClass(
         return FALSE;
 
     wcsncpy(Info->Name, symbolName, ARRAYSIZE(Info->Name));
-    Info->Name[ARRAYSIZE(Info->Name) - 1] = 0;
+    Info->Name[ARRAYSIZE(Info->Name) - 1] = UNICODE_NULL;
     LocalFree(symbolName);
 
     // Length ("length" in DIA) 
@@ -423,7 +423,7 @@ BOOLEAN PdbGetSymbolUDTUnion(
         return FALSE;
 
     wcsncpy(Info->Name, symbolName, ARRAYSIZE(Info->Name));
-    Info->Name[ARRAYSIZE(Info->Name) - 1] = 0;
+    Info->Name[ARRAYSIZE(Info->Name) - 1] = UNICODE_NULL;
     LocalFree(symbolName);
 
     // Length ("length" in DIA) 
@@ -649,7 +649,7 @@ BOOLEAN PdbGetSymbolData(
         return FALSE;
 
     wcsncpy(Info->Name, symbolName, ARRAYSIZE(Info->Name));
-    Info->Name[ARRAYSIZE(Info->Name) - 1] = 0;
+    Info->Name[ARRAYSIZE(Info->Name) - 1] = UNICODE_NULL;
     LocalFree(symbolName);
 
     // Index of type symbol ("typeId" in DIA)
@@ -2415,7 +2415,7 @@ NTSTATUS PeDumpFileSymbols(
     if (!SymInitializeW_I(NtCurrentProcess(), NULL, FALSE))
         return 1;
 
-    if (!SymSetSearchPathW_I(NtCurrentProcess(), L"SRV*C:\\symbols*http://msdl.microsoft.com/download/symbols"))
+    if (!SymSetSearchPathW_I(NtCurrentProcess(), L"SRV*C:\\symbols*https://msdl.microsoft.com/download/symbols"))
         goto CleanupExit;
 
     if (!NT_SUCCESS(status = PhCreateFileWin32(

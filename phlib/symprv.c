@@ -540,7 +540,7 @@ PPH_STRING PhGetSymbolFromAddress(
     ULONG64 displacement;
     PPH_STRING modFileName = NULL;
     PPH_STRING modBaseName = NULL;
-    ULONG64 modBase;
+    ULONG64 modBase = 0;
     PPH_STRING symbolName = NULL;
 
     if (Address == 0)
@@ -967,7 +967,7 @@ NTSTATUS PhpLookupDynamicFunctionTable(
                 }
                 else
                 {
-                    OutOfProcessCallbackDllBuffer[0] = 0;
+                    OutOfProcessCallbackDllBuffer[0] = UNICODE_NULL;
 
                     if (OutOfProcessCallbackDllString)
                     {

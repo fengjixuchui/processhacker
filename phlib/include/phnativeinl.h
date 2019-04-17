@@ -454,6 +454,32 @@ PhGetProcessCycleTime(
 
 FORCEINLINE
 NTSTATUS
+PhGetProcessUptime(
+    _In_ HANDLE ProcessHandle,
+    _Out_ PPROCESS_UPTIME_INFORMATION Uptime
+    )
+{
+    NTSTATUS status;
+    PROCESS_UPTIME_INFORMATION uptimeInfo;
+
+    status = NtQueryInformationProcess(
+        ProcessHandle,
+        ProcessUptimeInformation,
+        &uptimeInfo,
+        sizeof(PROCESS_UPTIME_INFORMATION),
+        NULL
+        );
+
+    if (!NT_SUCCESS(status))
+        return status;
+
+    *Uptime = uptimeInfo;
+
+    return status;
+}
+
+FORCEINLINE
+NTSTATUS
 PhGetProcessConsoleHostProcessId(
     _In_ HANDLE ProcessHandle,
     _Out_ PHANDLE ConsoleHostProcessId
@@ -890,7 +916,7 @@ PhGetThreadLastSystemCall(
         ThreadHandle,
         ThreadLastSystemCall,
         LastSystemCall,
-        RTL_SIZEOF_THROUGH_FIELD(THREAD_LAST_SYSCALL_INFORMATION, Pad), // HACK: Win7 requires exact size.
+        RTL_SIZEOF_THROUGH_FIELD(THREAD_LAST_SYSCALL_INFORMATION, Pad), // HACK: Win7 requires exact size. (dmex)
         NULL
         );
 }
@@ -1442,6 +1468,52 @@ PhGetTokenOrigin(
 
 FORCEINLINE
 NTSTATUS
+PhGetTokenIsAppContainer(
+    _In_ HANDLE TokenHandle,
+    _Out_ PBOOLEAN IsAppContainer
+    )
+{
+    NTSTATUS status;
+    ULONG returnLength;
+    ULONG isAppContainer;
+
+    status = NtQueryInformationToken(
+        TokenHandle,
+        TokenIsAppContainer,
+        &isAppContainer,
+        sizeof(ULONG),
+        &returnLength
+        );
+
+    if (!NT_SUCCESS(status))
+        return status;
+
+    *IsAppContainer = !!isAppContainer;
+
+    return status;
+}
+
+FORCEINLINE
+NTSTATUS
+PhGetTokenAppContainerNumber(
+    _In_ HANDLE TokenHandle,
+    _Out_ PULONG AppContainerNumber
+    )
+{
+    ULONG returnLength;
+
+    return NtQueryInformationToken(
+        TokenHandle,
+        TokenAppContainerNumber,
+        AppContainerNumber,
+        sizeof(ULONG),
+        &returnLength
+        );
+}
+
+
+FORCEINLINE
+NTSTATUS
 PhGetEventBasicInformation(
     _In_ HANDLE EventHandle,
     _Out_ PEVENT_BASIC_INFORMATION BasicInformation
@@ -1532,6 +1604,26 @@ PhGetTimerBasicInformation(
         TimerBasicInformation,
         BasicInformation,
         sizeof(TIMER_BASIC_INFORMATION),
+        NULL
+        );
+}
+
+FORCEINLINE
+NTSTATUS
+PhSetDebugKillProcessOnExit(
+    _In_ HANDLE DebugObjectHandle,
+    _In_ BOOLEAN KillProcessOnExit
+    )
+{
+    ULONG killProcessOnExit;
+
+    killProcessOnExit = KillProcessOnExit ? 1 : 0;
+
+    return NtSetInformationDebugObject(
+        DebugObjectHandle,
+        DebugObjectKillProcessOnExitInformation,
+        &killProcessOnExit,
+        sizeof(ULONG),
         NULL
         );
 }

@@ -89,9 +89,9 @@ typedef struct _PH_PROCESS_QUERY_S1_DATA
     HICON LargeIcon;
     PH_IMAGE_VERSION_INFO VersionInfo;
 
-    PPH_STRING JobName;
     HANDLE ConsoleHostProcessId;
     PPH_STRING PackageFullName;
+    PPH_STRING UserName;
 
     union
     {
@@ -474,9 +474,9 @@ VOID PhpProcessItemDeleteProcedure(
     if (processItem->LargeIcon) DestroyIcon(processItem->LargeIcon);
     PhDeleteImageVersionInfo(&processItem->VersionInfo);
     if (processItem->Sid) PhFree(processItem->Sid);
-    if (processItem->JobName) PhDereferenceObject(processItem->JobName);
     if (processItem->VerifySignerName) PhDereferenceObject(processItem->VerifySignerName);
     if (processItem->PackageFullName) PhDereferenceObject(processItem->PackageFullName);
+    if (processItem->UserName) PhDereferenceObject(processItem->UserName);
 
     if (processItem->QueryHandle) NtClose(processItem->QueryHandle);
 
@@ -646,7 +646,7 @@ ULONG PhpSidFullNameCacheHashtableHashFunction(
     return PhHashBytes(entry->Sid, RtlLengthSid(entry->Sid));
 }
 
-PPH_STRING PhpGetSidFullNameCached(
+PPH_STRING PhpGetSidFullNameCachedSlow(
     _In_ PSID Sid
     )
 {
@@ -685,6 +685,39 @@ PPH_STRING PhpGetSidFullNameCached(
     PhAddEntryHashtable(PhpSidFullNameCacheHashtable, &newEntry);
 
     return fullName;
+}
+
+PPH_STRING PhpGetSidFullNameCached(
+    _In_ PSID Sid
+    )
+{
+    //if (!PhpSidFullNameCacheHashtable)
+    //{
+    //    PhpSidFullNameCacheHashtable = PhCreateHashtable(
+    //        sizeof(PH_SID_FULL_NAME_CACHE_ENTRY),
+    //        PhpSidFullNameCacheHashtableEqualFunction,
+    //        PhpSidFullNameCacheHashtableHashFunction,
+    //        16
+    //        );
+    //    // HACK pre-cache local SIDs (dmex)
+    //    PhpGetSidFullNameCachedSlow(&PhSeLocalSystemSid);
+    //    PhpGetSidFullNameCachedSlow(&PhSeLocalServiceSid);
+    //    PhpGetSidFullNameCachedSlow(&PhSeNetworkServiceSid);
+    //}
+
+    if (PhpSidFullNameCacheHashtable)
+    {
+        PPH_SID_FULL_NAME_CACHE_ENTRY entry;
+        PH_SID_FULL_NAME_CACHE_ENTRY lookupEntry;
+
+        lookupEntry.Sid = Sid;
+        entry = PhFindEntryHashtable(PhpSidFullNameCacheHashtable, &lookupEntry);
+
+        if (entry)
+            return PhReferenceObject(entry->FullName);
+    }
+
+    return NULL;
 }
 
 VOID PhpFlushSidFullNameCache(
@@ -731,17 +764,6 @@ VOID PhpProcessQueryStage1(
 
         // Version info.
         PhInitializeImageVersionInfoCached(&Data->VersionInfo, processItem->FileName, FALSE);
-    }
-
-    // Debugged
-    if (processHandleLimited && !processItem->IsSubsystemProcess)
-    {
-        BOOLEAN isBeingDebugged;
-
-        if (NT_SUCCESS(PhGetProcessIsBeingDebugged(processHandleLimited, &isBeingDebugged)))
-        {
-            Data->IsBeingDebugged = isBeingDebugged;
-        }
     }
 
     // Command line, .NET
@@ -823,16 +845,6 @@ VOID PhpProcessQueryStage1(
 
                 Data->IsInJob = TRUE;
 
-                PhGetHandleInformation(
-                    NtCurrentProcess(),
-                    jobHandle,
-                    ULONG_MAX,
-                    NULL,
-                    NULL,
-                    NULL,
-                    &Data->JobName
-                    );
-
                 // Process Explorer only recognizes processes as being in jobs if they don't have
                 // the silent-breakaway-OK limit as their only limit. Emulate this behaviour.
                 if (NT_SUCCESS(PhGetJobBasicLimits(jobHandle, &basicLimits)))
@@ -900,6 +912,26 @@ VOID PhpProcessQueryStage1(
             Data->IsFilteredHandle = TRUE;
         }
     }
+
+    // Debugged
+    if (processHandleLimited && !processItem->IsSubsystemProcess && !Data->IsFilteredHandle) // Don't query the debug object if the handle was filtered (dmex)
+    {
+        BOOLEAN isBeingDebugged;
+
+        if (NT_SUCCESS(PhGetProcessIsBeingDebugged(processHandleLimited, &isBeingDebugged)))
+        {
+            Data->IsBeingDebugged = isBeingDebugged;
+        }
+    }
+
+    if (processItem->Sid)
+    {
+        // Note: We delay resolving the SID name because the local LSA cache might still be
+        // initializing for users on domain networks with slow links (e.g. VPNs). This can block
+        // for a very long time depending on server/network conditions. (dmex)
+        // TODO: This might need to be moved to Stage2...
+        PhMoveReference(&Data->UserName, PhpGetSidFullNameCachedSlow(processItem->Sid));
+    }
 }
 
 VOID PhpProcessQueryStage2(
@@ -934,8 +966,8 @@ VOID PhpProcessQueryStage2(
             )
         {
             Data->IsPacked = TRUE;
-            Data->ImportModules = -1;
-            Data->ImportFunctions = -1;
+            Data->ImportModules = ULONG_MAX;
+            Data->ImportFunctions = ULONG_MAX;
         }
     }
 
@@ -993,8 +1025,7 @@ VOID PhpQueueProcessQueryStage1(
     PhInitializeWorkQueueEnvironment(&environment);
     environment.BasePriority = THREAD_PRIORITY_BELOW_NORMAL;
 
-    PhQueueItemWorkQueueEx(PhGetGlobalWorkQueue(), PhpProcessQueryStage1Worker, ProcessItem,
-        NULL, &environment);
+    PhQueueItemWorkQueueEx(PhGetGlobalWorkQueue(), PhpProcessQueryStage1Worker, ProcessItem, NULL, &environment);
 }
 
 VOID PhpQueueProcessQueryStage2(
@@ -1003,9 +1034,6 @@ VOID PhpQueueProcessQueryStage2(
 {
     PH_WORK_QUEUE_ENVIRONMENT environment;
 
-    if (!PhEnableProcessQueryStage2)
-        return;
-
     PhReferenceObject(ProcessItem);
 
     PhInitializeWorkQueueEnvironment(&environment);
@@ -1013,8 +1041,7 @@ VOID PhpQueueProcessQueryStage2(
     environment.IoPriority = IoPriorityVeryLow;
     environment.PagePriority = MEMORY_PRIORITY_VERY_LOW;
 
-    PhQueueItemWorkQueueEx(PhGetGlobalWorkQueue(), PhpProcessQueryStage2Worker, ProcessItem,
-        NULL, &environment);
+    PhQueueItemWorkQueueEx(PhGetGlobalWorkQueue(), PhpProcessQueryStage2Worker, ProcessItem, NULL, &environment);
 }
 
 VOID PhpFillProcessItemStage1(
@@ -1027,7 +1054,6 @@ VOID PhpFillProcessItemStage1(
     processItem->SmallIcon = Data->SmallIcon;
     processItem->LargeIcon = Data->LargeIcon;
     memcpy(&processItem->VersionInfo, &Data->VersionInfo, sizeof(PH_IMAGE_VERSION_INFO));
-    processItem->JobName = Data->JobName;
     processItem->ConsoleHostProcessId = Data->ConsoleHostProcessId;
     processItem->PackageFullName = Data->PackageFullName;
     processItem->IsDotNet = Data->IsDotNet;
@@ -1038,6 +1064,12 @@ VOID PhpFillProcessItemStage1(
     processItem->IsProtectedHandle = Data->IsFilteredHandle;
 
     PhSwapReference(&processItem->Record->CommandLine, processItem->CommandLine);
+
+    // Note: We might have referenced the cached username so don't overwrite the previous data. (dmex)
+    if (!processItem->UserName)
+        processItem->UserName = Data->UserName;
+    else if (Data->UserName)
+        PhDereferenceObject(Data->UserName);
 
     // Note: Queue stage 2 processing after filling stage1 process data. 
     PhpQueueProcessQueryStage2(processItem);
@@ -1191,6 +1223,8 @@ VOID PhpFillProcessItem(
             if (NT_SUCCESS(PhGetTokenUser(tokenHandle, &tokenUser)))
             {
                 ProcessItem->Sid = PhAllocateCopy(tokenUser->User.Sid, RtlLengthSid(tokenUser->User.Sid));
+                ProcessItem->UserName = PhpGetSidFullNameCached(tokenUser->User.Sid);
+
                 PhFree(tokenUser);
             }
 
@@ -1217,6 +1251,7 @@ VOID PhpFillProcessItem(
             ProcessItem->ProcessId == SYSTEM_PROCESS_ID) // System token can't be opened on XP (wj32)
         {
             ProcessItem->Sid = PhAllocateCopy(&PhSeLocalSystemSid, RtlLengthSid(&PhSeLocalSystemSid));
+            ProcessItem->UserName = PhpGetSidFullNameCached(&PhSeLocalSystemSid);
         }
     }
 
@@ -1344,8 +1379,7 @@ VOID PhpUpdateCpuInformation(
 
     for (i = 0; i < (ULONG)PhSystemBasicInformation.NumberOfProcessors; i++)
     {
-        PSYSTEM_PROCESSOR_PERFORMANCE_INFORMATION cpuInfo =
-            &PhCpuInformation[i];
+        PSYSTEM_PROCESSOR_PERFORMANCE_INFORMATION cpuInfo = &PhCpuInformation[i];
 
         // KernelTime includes IdleTime.
         cpuInfo->KernelTime.QuadPart -= cpuInfo->IdleTime.QuadPart;
@@ -1372,8 +1406,8 @@ VOID PhpUpdateCpuInformation(
             }
             else
             {
-                PhCpusKernelUsage[i] = 0;
-                PhCpusUserUsage[i] = 0;
+                PhCpusKernelUsage[i] = 0.0f;
+                PhCpusUserUsage[i] = 0.0f;
             }
         }
     }
@@ -1393,8 +1427,8 @@ VOID PhpUpdateCpuInformation(
         }
         else
         {
-            PhCpuKernelUsage = 0;
-            PhCpuUserUsage = 0;
+            PhCpuKernelUsage = 0.0f;
+            PhCpuUserUsage = 0.0f;
         }
     }
 
@@ -1763,6 +1797,8 @@ VOID PhProcessProviderUpdate(
     {
         if (PhEnablePurgeProcessRecords)
             PhPurgeProcessRecords();
+
+        PhpFlushSidFullNameCache();
 
         PhFlushImageVersionInfoCache();
     }
@@ -2209,13 +2245,21 @@ VOID PhProcessProviderUpdate(
                     // User
                     if (NT_SUCCESS(PhGetTokenUser(tokenHandle, &tokenUser)))
                     {
-                        PSID processSid = processItem->Sid;
+                        if (!RtlEqualSid(processItem->Sid, tokenUser->User.Sid))
+                        {
+                            PSID processSid;
 
-                        processItem->Sid = PhAllocateCopy(tokenUser->User.Sid, RtlLengthSid(tokenUser->User.Sid));
+                            // HACK (dmex)
+                            processSid = processItem->Sid;
+                            processItem->Sid = PhAllocateCopy(tokenUser->User.Sid, RtlLengthSid(tokenUser->User.Sid));
+                            PhFree(processSid);
 
-                        PhFree(processSid);
+                            PhMoveReference(&processItem->UserName, PhpGetSidFullNameCachedSlow(processItem->Sid));
+
+                            modified = TRUE;
+                        }
+
                         PhFree(tokenUser);
-                        modified = TRUE;
                     }
 
                     // Elevation
@@ -2248,6 +2292,8 @@ VOID PhProcessProviderUpdate(
             if (processItem->QueryHandle)
             {
                 NTSTATUS status;
+                BOOLEAN isInSignificantJob = FALSE;
+                BOOLEAN isInJob = FALSE;
 
                 if (KphIsConnected())
                 {
@@ -2262,29 +2308,12 @@ VOID PhProcessProviderUpdate(
                     if (NT_SUCCESS(status) && status != STATUS_PROCESS_NOT_IN_JOB)
                     {
                         JOBOBJECT_BASIC_LIMIT_INFORMATION basicLimits;
-                        PPH_STRING jobName = NULL;
 
-                        processItem->IsInJob = TRUE;
+                        isInJob = TRUE;
 
-                        PhGetHandleInformation(
-                            NtCurrentProcess(),
-                            jobHandle,
-                            ULONG_MAX,
-                            NULL,
-                            NULL,
-                            NULL,
-                            &jobName
-                            );
-
-                        if (jobName)
-                            PhMoveReference(&processItem->JobName, jobName);
-
-                        // Process Explorer only recognizes processes as being in jobs if they don't have
-                        // the silent-breakaway-OK limit as their only limit. Emulate this behaviour. (wj32)
                         if (NT_SUCCESS(PhGetJobBasicLimits(jobHandle, &basicLimits)))
                         {
-                            processItem->IsInSignificantJob =
-                                basicLimits.LimitFlags != JOB_OBJECT_LIMIT_SILENT_BREAKAWAY_OK;
+                            isInSignificantJob = basicLimits.LimitFlags != JOB_OBJECT_LIMIT_SILENT_BREAKAWAY_OK;
                         }
                     }
 
@@ -2293,25 +2322,33 @@ VOID PhProcessProviderUpdate(
                 }
                 else
                 {
-                    // KProcessHacker is not available. We can determine if the process is in a job, but we
-                    // can't get a handle to the job. (wj32)
-
                     status = NtIsProcessInJob(processItem->QueryHandle, NULL);
 
                     if (NT_SUCCESS(status))
-                        processItem->IsInJob = status == STATUS_PROCESS_IN_JOB;
+                        isInJob = status == STATUS_PROCESS_IN_JOB;
+                }
+
+                if (processItem->IsInSignificantJob != isInSignificantJob)
+                {
+                    processItem->IsInSignificantJob = isInSignificantJob;
+                    modified = TRUE;
+                }
+
+                if (processItem->IsInJob != isInJob)
+                {
+                    processItem->IsInJob = isInJob;
+                    modified = TRUE;
                 }
             }
 
             // Debugged
-            if (processItem->QueryHandle)
+            if (processItem->QueryHandle && !processItem->IsSubsystemProcess && !processItem->IsProtectedHandle)
             {
-                BOOLEAN isBeingDebugged;
+                BOOLEAN isBeingDebugged = FALSE;
 
-                if (NT_SUCCESS(PhGetProcessIsBeingDebugged(
-                    processItem->QueryHandle,
-                    &isBeingDebugged
-                    )) && processItem->IsBeingDebugged != isBeingDebugged)
+                PhGetProcessIsBeingDebugged(processItem->QueryHandle, &isBeingDebugged);
+
+                if (processItem->IsBeingDebugged != isBeingDebugged)
                 {
                     processItem->IsBeingDebugged = isBeingDebugged;
                     modified = TRUE;
@@ -2348,7 +2385,7 @@ VOID PhProcessProviderUpdate(
             }
 
             // Immersive
-            if (processItem->QueryHandle && WINDOWS_HAS_IMMERSIVE && IsImmersiveProcess)
+            if (processItem->QueryHandle && WINDOWS_HAS_IMMERSIVE && IsImmersiveProcess && !processItem->IsSubsystemProcess)
             {
                 BOOLEAN isImmersive;
 
@@ -2397,8 +2434,6 @@ VOID PhProcessProviderUpdate(
         PhFree(PhProcessInformation);
 
     PhProcessInformation = processes;
-
-    PhpFlushSidFullNameCache();
 
     // History cannot be updated on the first run because the deltas are invalid. For example, the
     // I/O "deltas" will be huge because they are currently the raw accumulated values.

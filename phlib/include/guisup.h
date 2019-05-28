@@ -24,9 +24,9 @@ extern "C" {
 typedef struct _NMRUNFILEDLGW
 {
     NMHDR hdr;
-    LPCWSTR lpszFile;
-    LPCWSTR lpszDirectory;
-    UINT nShow;
+    PWSTR lpszFile;
+    PWSTR lpszDirectory;
+    UINT ShowCmd;
 } NMRUNFILEDLGW, *LPNMRUNFILEDLGW, *PNMRUNFILEDLGW;
 
 typedef NMRUNFILEDLGW NMRUNFILEDLG;
@@ -907,6 +907,13 @@ NTAPI
 PhInitializeWindowTheme(
     _In_ HWND WindowHandle,
     _In_ BOOLEAN EnableThemeSupport
+    );
+
+PHLIBAPI
+VOID
+NTAPI
+PhInitializeWindowThemeEx(
+    _In_ HWND WindowHandle
     );
 
 PHLIBAPI

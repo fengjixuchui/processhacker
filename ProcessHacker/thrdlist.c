@@ -114,7 +114,7 @@ VOID PhInitializeThreadList(
     PhAddTreeNewColumn(TreeNewHandle, PH_THREAD_TREELIST_COLUMN_USERTIME, FALSE, L"User time", 100, PH_ALIGN_LEFT, ULONG_MAX, 0);
     PhAddTreeNewColumn(TreeNewHandle, PH_THREAD_TREELIST_COLUMN_IDEALPROCESSOR, FALSE, L"Ideal processor", 80, PH_ALIGN_LEFT, ULONG_MAX, 0);
     PhAddTreeNewColumn(TreeNewHandle, PH_THREAD_TREELIST_COLUMN_CRITICAL, FALSE, L"Critical", 80, PH_ALIGN_LEFT, ULONG_MAX, 0);
-    PhAddTreeNewColumn(TreeNewHandle, PH_THREAD_TREELIST_COLUMN_TIDHEX, FALSE, L"TID (Hex)", 50, PH_ALIGN_RIGHT, 0, DT_RIGHT);
+    PhAddTreeNewColumn(TreeNewHandle, PH_THREAD_TREELIST_COLUMN_TIDHEX, FALSE, L"TID (Hex)", 50, PH_ALIGN_RIGHT, ULONG_MAX, DT_RIGHT);
 
     TreeNew_SetRedraw(TreeNewHandle, TRUE);
     TreeNew_SetTriState(TreeNewHandle, TRUE);
@@ -345,7 +345,7 @@ VOID PhpRemoveThreadNode(
 
     // Remove from list and cleanup.
 
-    if ((index = PhFindItemList(Context->NodeList, ThreadNode)) != -1)
+    if ((index = PhFindItemList(Context->NodeList, ThreadNode)) != ULONG_MAX)
         PhRemoveItemList(Context->NodeList, index);
 
     PhpDestroyThreadNode(ThreadNode);
@@ -460,7 +460,7 @@ BEGIN_SORT_FUNCTION(Name)
 }
 END_SORT_FUNCTION
 
-BEGIN_SORT_FUNCTION(Started)
+BEGIN_SORT_FUNCTION(Created)
 {
     sortResult = uint64cmp(threadItem1->CreateTime.QuadPart, threadItem2->CreateTime.QuadPart);
 }
@@ -539,6 +539,13 @@ BEGIN_SORT_FUNCTION(Critical)
 }
 END_SORT_FUNCTION
 
+BEGIN_SORT_FUNCTION(TidHex)
+{
+    sortResult = uintptrcmp((ULONG_PTR)node1->ThreadId, (ULONG_PTR)node2->ThreadId);
+    //sortResult = ucharcmp(node1->ThreadIdHexText, node2->ThreadIdHexText, TRUE);
+}
+END_SORT_FUNCTION
+
 BOOLEAN NTAPI PhpThreadTreeNewCallback(
     _In_ HWND hwnd,
     _In_ PH_TREENEW_MESSAGE Message,
@@ -572,7 +579,7 @@ BOOLEAN NTAPI PhpThreadTreeNewCallback(
                     SORT_FUNCTION(PrioritySymbolic),
                     SORT_FUNCTION(Service),
                     SORT_FUNCTION(Name),
-                    SORT_FUNCTION(Started),
+                    SORT_FUNCTION(Created),
                     SORT_FUNCTION(StartModule),
                     SORT_FUNCTION(ContextSwitches),
                     SORT_FUNCTION(Priority),
@@ -584,7 +591,8 @@ BOOLEAN NTAPI PhpThreadTreeNewCallback(
                     SORT_FUNCTION(KernelTime),
                     SORT_FUNCTION(UserTime),
                     SORT_FUNCTION(IdealProcessor),
-                    SORT_FUNCTION(Critical)
+                    SORT_FUNCTION(Critical),
+                    SORT_FUNCTION(TidHex),
                 };
                 int (__cdecl *sortFunction)(void *, const void *, const void *);
 

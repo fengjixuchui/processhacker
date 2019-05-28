@@ -127,7 +127,6 @@ typedef struct _PH_PROCESS_ITEM
 
     // Other
 
-    PPH_STRING JobName;
     HANDLE ConsoleHostProcessId;
 
     // Signature, Packed
@@ -221,6 +220,7 @@ typedef struct _PH_PROCESS_ITEM
     // New fields
     PH_UINTPTR_DELTA PrivateBytesDelta;
     PPH_STRING PackageFullName;
+    PPH_STRING UserName;
 
     ULONGLONG ProcessSequenceNumber;
     PH_KNOWN_PROCESS_TYPE KnownProcessType;

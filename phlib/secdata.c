@@ -3,6 +3,7 @@
  *   object security data
  *
  * Copyright (C) 2010-2016 wj32
+ * Copyright (C) 2017-2019 dmex
  *
  * This file is part of Process Hacker.
  *
@@ -671,6 +672,10 @@ BOOLEAN PhGetAccessEntries(
     else if (PhEqualStringZ(Type, L"Thread", TRUE))
     {
         Type = L"Thread60";
+    }
+    else if (PhEqualStringZ(Type, L"FileObject", TRUE))
+    {
+        Type = L"File";
     }
 
     // Find the specific type.

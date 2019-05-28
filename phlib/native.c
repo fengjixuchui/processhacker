@@ -444,7 +444,10 @@ PPH_STRING PhGetSecurityDescriptorAsString(
     ULONG stringSecurityDescriptorLength;
     PWSTR stringSecurityDescriptor;
 
-    if (ConvertSecurityDescriptorToStringSecurityDescriptor(
+    if (!ConvertSecurityDescriptorToStringSecurityDescriptorW_Import())
+        return NULL;
+
+    if (ConvertSecurityDescriptorToStringSecurityDescriptorW_Import()(
         SecurityDescriptor,
         SDDL_REVISION,
         SecurityInformation,
@@ -616,6 +619,67 @@ NTSTATUS PhGetProcessImageFileNameWin32(
 
     *FileName = PhCreateStringFromUnicodeString(fileName);
     PhFree(fileName);
+
+    return status;
+}
+
+/**
+ * Gets whether a process is being debugged.
+ *
+ * \param ProcessHandle A handle to a process. The handle must have PROCESS_QUERY_INFORMATION
+ * access.
+ * \param IsBeingDebugged A variable which receives a boolean indicating whether the process is
+ * being debugged.
+ */
+NTSTATUS PhGetProcessIsBeingDebugged(
+    _In_ HANDLE ProcessHandle,
+    _Out_ PBOOLEAN IsBeingDebugged
+    )
+{
+    NTSTATUS status;
+
+    // NOTE: The ProcessDebugObjectHandle is always valid when the process is being debugged while the ProcessDebugPort 
+    // is only set when the process was created with DEBUG_PROCESS flag by CsrCreateProcess. (dmex)
+    if (KphIsVerified())
+    {
+        HANDLE debugHandle;
+
+        status = NtQueryInformationProcess(
+            ProcessHandle,
+            ProcessDebugObjectHandle,
+            &debugHandle,
+            sizeof(HANDLE),
+            NULL
+            );
+
+        if (NT_SUCCESS(status))
+        {
+            *IsBeingDebugged = TRUE;
+            NtClose(debugHandle);
+        }
+        else if (status == STATUS_ACCESS_DENIED)
+        {
+            *IsBeingDebugged = TRUE;
+            status = STATUS_SUCCESS;
+        }
+    }
+    else
+    {
+        PVOID debugPort;
+
+        status = NtQueryInformationProcess(
+            ProcessHandle,
+            ProcessDebugPort,
+            &debugPort,
+            sizeof(PVOID),
+            NULL
+            );
+
+        if (NT_SUCCESS(status))
+        {
+            *IsBeingDebugged = !!debugPort;
+        }
+    }
 
     return status;
 }
@@ -1503,7 +1567,7 @@ NTSTATUS PhLoadDllProcess(
     if (!isModule32)
     {
 #endif
-        threadStart = PhGetModuleProcAddress(L"kernel32.dll", "LoadLibraryW");
+        threadStart = PhGetDllProcedureAddress(L"kernel32.dll", "LoadLibraryW", 0);
 #ifdef _WIN64
     }
     else
@@ -1537,7 +1601,7 @@ NTSTATUS PhLoadDllProcess(
 #endif
 
     PhInitializeStringRefLongHint(&fileName, FileName);
-    allocSize = fileName.Length + sizeof(WCHAR);
+    allocSize = fileName.Length + sizeof(UNICODE_NULL);
 
     if (!NT_SUCCESS(status = NtAllocateVirtualMemory(
         ProcessHandle,
@@ -1553,7 +1617,7 @@ NTSTATUS PhLoadDllProcess(
         ProcessHandle,
         baseAddress,
         fileName.Buffer,
-        fileName.Length + sizeof(WCHAR),
+        fileName.Length + sizeof(UNICODE_NULL),
         NULL
         )))
         goto FreeExit;
@@ -1694,7 +1758,7 @@ NTSTATUS PhUnloadDllProcess(
         0,
         0,
         0,
-        (PUSER_THREAD_START_ROUTINE)threadStart,
+        threadStart,
         BaseAddress,
         &threadHandle,
         NULL
@@ -1750,10 +1814,10 @@ NTSTATUS PhSetEnvironmentVariableRemote(
     PVOID setEnvironmentVariableW = NULL;
     HANDLE threadHandle = NULL;
 
-    nameAllocationSize = Name->Length + sizeof(WCHAR);
+    nameAllocationSize = Name->Length + sizeof(UNICODE_NULL);
 
     if (Value)
-        valueAllocationSize = Value->Length + sizeof(WCHAR);
+        valueAllocationSize = Value->Length + sizeof(UNICODE_NULL);
 
 #ifdef _WIN64
     if (!NT_SUCCESS(status = PhGetProcessIsWow64(ProcessHandle, &isWow64)))
@@ -1790,6 +1854,7 @@ NTSTATUS PhSetEnvironmentVariableRemote(
     {
         goto CleanupExit;
     }
+
     if (!NT_SUCCESS(status = PhGetProcedureAddressRemote(
         ProcessHandle,
         kernel32FileName->Buffer,
@@ -1813,6 +1878,7 @@ NTSTATUS PhSetEnvironmentVariableRemote(
     {
         goto CleanupExit;
     }
+
     if (!NT_SUCCESS(status = NtWriteVirtualMemory(
         ProcessHandle,
         nameBaseAddress,
@@ -1837,6 +1903,7 @@ NTSTATUS PhSetEnvironmentVariableRemote(
         {
             goto CleanupExit;
         }
+
         if (!NT_SUCCESS(status = NtWriteVirtualMemory(
             ProcessHandle,
             valueBaseAddress,
@@ -1856,7 +1923,7 @@ NTSTATUS PhSetEnvironmentVariableRemote(
         0,
         0,
         0,
-        (PUSER_THREAD_START_ROUTINE)rtlExitUserThread,
+        rtlExitUserThread,
         NULL,
         &threadHandle,
         NULL
@@ -2200,34 +2267,22 @@ NTSTATUS PhGetTokenNamedObjectPath(
     _Out_ PPH_STRING* ObjectPath
     )
 {
-    static PH_INITONCE initOnce = PH_INITONCE_INIT;
-    static NTSTATUS(WINAPI * RtlGetTokenNamedObjectPath_I)(
-        _In_ HANDLE Token,
-        _In_opt_ PSID Sid,
-        _Out_ PUNICODE_STRING ObjectPath
-        ) = NULL;
     NTSTATUS status;
-    UNICODE_STRING namedObjectPathUs;
+    UNICODE_STRING objectPathUs;
 
-    if (PhBeginInitOnce(&initOnce))
-    {
-        RtlGetTokenNamedObjectPath_I = PhGetDllProcedureAddress(L"ntdll.dll", "RtlGetTokenNamedObjectPath", 0);
-        PhEndInitOnce(&initOnce);
-    }
+    if (!RtlGetTokenNamedObjectPath_Import())
+        return STATUS_NOT_SUPPORTED;
 
-    if (!RtlGetTokenNamedObjectPath_I)
-        return STATUS_UNSUCCESSFUL;
-
-    status = RtlGetTokenNamedObjectPath_I(
+    status = RtlGetTokenNamedObjectPath_Import()(
         TokenHandle,
         Sid,
-        &namedObjectPathUs
+        &objectPathUs
         );
 
     if (NT_SUCCESS(status))
     {
-        *ObjectPath = PhCreateStringFromUnicodeString(&namedObjectPathUs);
-        RtlFreeUnicodeString(&namedObjectPathUs);
+        *ObjectPath = PhCreateStringFromUnicodeString(&objectPathUs);
+        RtlFreeUnicodeString(&objectPathUs);
     }
 
     return status;
@@ -2240,36 +2295,23 @@ NTSTATUS PhGetAppContainerNamedObjectPath(
     _Out_ PPH_STRING* ObjectPath
     )
 {
-    static PH_INITONCE initOnce = PH_INITONCE_INIT;
-    static NTSTATUS (WINAPI * RtlGetAppContainerNamedObjectPath_I)(
-        _In_opt_ HANDLE Token,
-        _In_opt_ PSID AppContainerSid,
-        _In_ BOOLEAN RelativePath,
-        _Out_ PUNICODE_STRING ObjectPath
-        ) = NULL;
     NTSTATUS status;
-    UNICODE_STRING namedObjectPathUs;
+    UNICODE_STRING objectPathUs;
 
-    if (PhBeginInitOnce(&initOnce))
-    {
-        RtlGetAppContainerNamedObjectPath_I = PhGetDllProcedureAddress(L"ntdll.dll", "RtlGetAppContainerNamedObjectPath", 0);
-        PhEndInitOnce(&initOnce);
-    }
-
-    if (!RtlGetAppContainerNamedObjectPath_I)
+    if (!RtlGetAppContainerNamedObjectPath_Import())
         return STATUS_UNSUCCESSFUL;
 
-    status = RtlGetAppContainerNamedObjectPath_I(
+    status = RtlGetAppContainerNamedObjectPath_Import()(
         TokenHandle,
         AppContainerSid,
         RelativePath,
-        &namedObjectPathUs
+        &objectPathUs
         );
 
     if (NT_SUCCESS(status))
     {
-        *ObjectPath = PhCreateStringFromUnicodeString(&namedObjectPathUs);
-        RtlFreeUnicodeString(&namedObjectPathUs);
+        *ObjectPath = PhCreateStringFromUnicodeString(&objectPathUs);
+        RtlFreeUnicodeString(&objectPathUs);
     }
 
     return status;
@@ -2281,6 +2323,7 @@ BOOLEAN PhGetTokenSecurityDescriptorAsString(
     )
 {
     PSECURITY_DESCRIPTOR securityDescriptor;
+    PPH_STRING securityDescriptorString;
 
     if (NT_SUCCESS(PhGetObjectSecurity(
         TokenHandle,
@@ -2290,16 +2333,20 @@ BOOLEAN PhGetTokenSecurityDescriptorAsString(
         &securityDescriptor
         )))
     {
-        *SecurityDescriptorString = PhGetSecurityDescriptorAsString(
+        if (securityDescriptorString = PhGetSecurityDescriptorAsString(
             OWNER_SECURITY_INFORMATION | GROUP_SECURITY_INFORMATION |
             DACL_SECURITY_INFORMATION | LABEL_SECURITY_INFORMATION |
             ATTRIBUTE_SECURITY_INFORMATION | SCOPE_SECURITY_INFORMATION,
             securityDescriptor
-            );
+            ))
+        {
+            *SecurityDescriptorString = securityDescriptorString;
+
+            PhFree(securityDescriptor);
+            return TRUE;
+        }
 
         PhFree(securityDescriptor);
-
-        return TRUE;
     }
 
     return FALSE;
@@ -4347,30 +4394,34 @@ PVOID PhGetDllHandle(
     _In_ PWSTR DllName
     )
 {
-    UNICODE_STRING dllName;
-    PVOID dllHandle;
+    return PhGetLoaderEntryDllBase(DllName);
 
-    RtlInitUnicodeString(&dllName, DllName);
-
-    if (NT_SUCCESS(LdrGetDllHandle(NULL, NULL, &dllName, &dllHandle)))
-        return dllHandle;
-    else
-        return NULL;
+    //UNICODE_STRING dllName;
+    //PVOID dllHandle;
+    //
+    //RtlInitUnicodeString(&dllName, DllName);
+    //
+    //if (NT_SUCCESS(LdrGetDllHandle(NULL, NULL, &dllName, &dllHandle)))
+    //    return dllHandle;
+    //else
+    //    return NULL;
 }
 
 PVOID PhGetModuleProcAddress(
     _In_ PWSTR ModuleName,
-    _In_ PSTR ProcName
+    _In_ PSTR ProcedureName
     )
 {
-    PVOID module;
+    return PhGetDllProcedureAddress(ModuleName, ProcedureName, 0);
 
-    module = PhGetDllHandle(ModuleName);
-
-    if (module)
-        return PhGetProcedureAddress(module, ProcName, 0);
-    else
-        return NULL;
+    //PVOID module;
+    //
+    //module = PhGetDllHandle(ModuleName);
+    //
+    //if (module)
+    //    return PhGetProcedureAddress(module, ProcName, 0);
+    //else
+    //    return NULL;
 }
 
 PVOID PhGetProcedureAddress(
@@ -4379,34 +4430,36 @@ PVOID PhGetProcedureAddress(
     _In_opt_ ULONG ProcedureNumber
     )
 {
-    NTSTATUS status;
-    ANSI_STRING procedureName;
-    PVOID procedureAddress;
+    return PhGetDllBaseProcedureAddress(DllHandle, ProcedureName, (USHORT)ProcedureNumber);
 
-    if (ProcedureName)
-    {
-        RtlInitAnsiString(&procedureName, ProcedureName);
-        status = LdrGetProcedureAddress(
-            DllHandle,
-            &procedureName,
-            0,
-            &procedureAddress
-            );
-    }
-    else
-    {
-        status = LdrGetProcedureAddress(
-            DllHandle,
-            NULL,
-            ProcedureNumber,
-            &procedureAddress
-            );
-    }
-
-    if (!NT_SUCCESS(status))
-        return NULL;
-
-    return procedureAddress;
+    //NTSTATUS status;
+    //ANSI_STRING procedureName;
+    //PVOID procedureAddress;
+    //
+    //if (ProcedureName)
+    //{
+    //    RtlInitAnsiString(&procedureName, ProcedureName);
+    //    status = LdrGetProcedureAddress(
+    //        DllHandle,
+    //        &procedureName,
+    //        0,
+    //        &procedureAddress
+    //        );
+    //}
+    //else
+    //{
+    //    status = LdrGetProcedureAddress(
+    //        DllHandle,
+    //        NULL,
+    //        ProcedureNumber,
+    //        &procedureAddress
+    //        );
+    //}
+    //
+    //if (!NT_SUCCESS(status))
+    //    return NULL;
+    //
+    //return procedureAddress;
 }
 
 typedef struct _GET_PROCEDURE_ADDRESS_REMOTE_CONTEXT
@@ -5006,6 +5059,44 @@ NTSTATUS PhEnumPagefiles(
 
     while ((status = NtQuerySystemInformation(
         SystemPageFileInformation,
+        buffer,
+        bufferSize,
+        NULL
+        )) == STATUS_INFO_LENGTH_MISMATCH)
+    {
+        PhFree(buffer);
+        bufferSize *= 2;
+
+        // Fail if we're resizing the buffer to something very large.
+        if (bufferSize > PH_LARGE_BUFFER_SIZE)
+            return STATUS_INSUFFICIENT_RESOURCES;
+
+        buffer = PhAllocate(bufferSize);
+    }
+
+    if (!NT_SUCCESS(status))
+    {
+        PhFree(buffer);
+        return status;
+    }
+
+    *Pagefiles = buffer;
+
+    return status;
+}
+
+NTSTATUS PhEnumPagefilesEx(
+    _Out_ PVOID *Pagefiles
+    )
+{
+    NTSTATUS status;
+    PVOID buffer;
+    ULONG bufferSize = 0x200;
+
+    buffer = PhAllocate(bufferSize);
+
+    while ((status = NtQuerySystemInformation(
+        SystemPageFileInformationEx,
         buffer,
         bufferSize,
         NULL
@@ -6123,7 +6214,7 @@ PPH_STRING PhGetFileName(
             // If the file name starts with "\Windows", prepend the system drive.
             if (PhStartsWithString2(newFileName, L"\\Windows", TRUE))
             {
-                newFileName = PhCreateStringEx(NULL, FileName->Length + sizeof(UNICODE_NULL) * sizeof(WCHAR));
+                newFileName = PhCreateStringEx(NULL, FileName->Length + 2 * sizeof(WCHAR));
                 newFileName->Buffer[0] = USER_SHARED_DATA->NtSystemRoot[0];
                 newFileName->Buffer[1] = ':';
                 memcpy(&newFileName->Buffer[2], FileName->Buffer, FileName->Length);
@@ -8226,4 +8317,66 @@ NTSTATUS PhGetThreadName(
     PhFree(buffer);
 
     return status;
+}
+
+NTSTATUS PhImpersonateToken(
+    _In_ HANDLE ThreadHandle,
+    _In_ HANDLE TokenHandle
+    )
+{
+    NTSTATUS status;
+    SECURITY_QUALITY_OF_SERVICE securityService;
+    OBJECT_ATTRIBUTES objectAttributes;
+    HANDLE tokenHandle;
+
+    InitializeObjectAttributes(
+        &objectAttributes,
+        NULL,
+        0,
+        NULL,
+        NULL
+        );
+
+    securityService.Length = sizeof(SECURITY_QUALITY_OF_SERVICE);
+    securityService.ImpersonationLevel = SecurityImpersonation;
+    securityService.ContextTrackingMode = SECURITY_DYNAMIC_TRACKING;
+    securityService.EffectiveOnly = FALSE;
+    objectAttributes.SecurityQualityOfService = &securityService;
+
+    status = NtDuplicateToken(
+        TokenHandle,
+        TOKEN_IMPERSONATE | TOKEN_QUERY,
+        &objectAttributes,
+        FALSE,
+        TokenImpersonation,
+        &tokenHandle
+        );
+
+    if (!NT_SUCCESS(status))
+        return status;
+
+    status = NtSetInformationThread(
+        ThreadHandle,
+        ThreadImpersonationToken,
+        &tokenHandle,
+        sizeof(HANDLE)
+        );
+
+    NtClose(tokenHandle);
+
+    return status;
+}
+
+NTSTATUS PhRevertImpersonationToken(
+    _In_ HANDLE ThreadHandle
+    )
+{
+    HANDLE tokenHandle = NULL;
+
+    return NtSetInformationThread(
+        ThreadHandle,
+        ThreadImpersonationToken,
+        &tokenHandle,
+        sizeof(HANDLE)
+        );
 }

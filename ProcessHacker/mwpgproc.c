@@ -162,8 +162,8 @@ BOOLEAN PhMwpProcessesPageCallback(
                         PPH_COLUMN_SET_ENTRY entry = columnSetList->Items[index];
 
                         menuItem = PhCreateEMenuItem(PH_EMENU_TEXT_OWNED, ID_VIEW_LOADCOLUMNSET, 
-                            PhAllocateCopy(entry->Name->Buffer, entry->Name->Length + sizeof(WCHAR)), NULL, NULL);
-                        PhInsertEMenuItem(columnSetMenuItem, menuItem, -1);
+                            PhAllocateCopy(entry->Name->Buffer, entry->Name->Length + sizeof(UNICODE_NULL)), NULL, NULL);
+                        PhInsertEMenuItem(columnSetMenuItem, menuItem, ULONG_MAX);
                     }
                 }
 
@@ -786,7 +786,7 @@ VOID NTAPI PhMwpProcessesUpdatedHandler(
     _In_opt_ PVOID Context
     )
 {
-    PostMessage(PhMainWndHandle, WM_PH_PROCESSES_UPDATED, PhGetRunIdProvider(&PhMwpProcessProviderRegistration), 0);
+    ProcessHacker_Invoke(PhMainWndHandle, PhMwpOnProcessesUpdated, PhGetRunIdProvider(&PhMwpProcessProviderRegistration));
 }
 
 VOID PhMwpOnProcessAdded(

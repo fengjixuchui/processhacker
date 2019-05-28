@@ -201,6 +201,7 @@ NTSTATUS PhpBaseThreadStart(
     result = CoInitializeEx(NULL, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
 
     // Call the user-supplied function.
+
     status = context.StartAddress(context.Parameter);
 
     // De-initialization code
@@ -254,7 +255,8 @@ HANDLE PhCreateThread(
     // NOTE: PhCreateThread previously used CreateThread with callers using GetLastError()
     // for checking errors. We need to preserve this behavior for compatibility -dmex
     // TODO: Migrate code over to PhCreateThreadEx and remove this function.
-    RtlSetLastWin32ErrorAndNtStatusFromNtStatus(status);
+    //RtlSetLastWin32ErrorAndNtStatusFromNtStatus(status);
+    SetLastError(RtlNtStatusToDosError(status));
 
     if (NT_SUCCESS(status))
     {
@@ -700,7 +702,7 @@ PWSTR PhDuplicateStringZ(
     PWSTR newString;
     SIZE_T length;
 
-    length = (PhCountStringZ(String) + sizeof(UNICODE_NULL)) * sizeof(WCHAR); // include the null terminator
+    length = PhCountStringZ(String) * sizeof(WCHAR) + sizeof(UNICODE_NULL); // include the null terminator
 
     newString = PhAllocate(length);
     memcpy(newString, String, length);
@@ -4311,7 +4313,7 @@ ULONG PhFindItemList(
             return i;
     }
 
-    return -1;
+    return ULONG_MAX;
 }
 
 /**
@@ -5905,9 +5907,10 @@ VOID PhPrintTimeSpan(
     switch (Mode)
     {
     case PH_TIMESPAN_HMSM:
-        _snwprintf(
+        _snwprintf_s(
             Destination,
             PH_TIMESPAN_STR_LEN,
+            _TRUNCATE,
             L"%02I64u:%02I64u:%02I64u.%03I64u",
             PH_TICKS_PARTIAL_HOURS(Ticks),
             PH_TICKS_PARTIAL_MIN(Ticks),
@@ -5916,9 +5919,10 @@ VOID PhPrintTimeSpan(
             );
         break;
     case PH_TIMESPAN_DHMS:
-        _snwprintf(
+        _snwprintf_s(
             Destination,
             PH_TIMESPAN_STR_LEN,
+            _TRUNCATE,
             L"%I64u:%02I64u:%02I64u:%02I64u",
             PH_TICKS_PARTIAL_DAYS(Ticks),
             PH_TICKS_PARTIAL_HOURS(Ticks),
@@ -5927,9 +5931,10 @@ VOID PhPrintTimeSpan(
             );
         break;
     default:
-        _snwprintf(
+        _snwprintf_s(
             Destination,
             PH_TIMESPAN_STR_LEN,
+            _TRUNCATE,
             L"%02I64u:%02I64u:%02I64u",
             PH_TICKS_PARTIAL_HOURS(Ticks),
             PH_TICKS_PARTIAL_MIN(Ticks),

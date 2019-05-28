@@ -178,10 +178,13 @@ LCID PhGetSystemDefaultLCID(
     VOID
     )
 {
-    LCID localeId;
+    if (NtQueryDefaultLocale_Import())
+    {
+        LCID localeId;
 
-    if (NT_SUCCESS(NtQueryDefaultLocale(FALSE, &localeId)))
-        return localeId;
+        if (NT_SUCCESS(NtQueryDefaultLocale_Import()(FALSE, &localeId)))
+            return localeId;
+    }
 
     return MAKELCID(MAKELANGID(LANG_ENGLISH, SUBLANG_DEFAULT), SORT_DEFAULT);
 }
@@ -191,10 +194,13 @@ LCID PhGetUserDefaultLCID(
     VOID
     )
 {
-    LCID localeId;
+    if (NtQueryDefaultLocale_Import())
+    {
+        LCID localeId;
 
-    if (NT_SUCCESS(NtQueryDefaultLocale(TRUE, &localeId)))
-        return localeId;
+        if (NT_SUCCESS(NtQueryDefaultLocale_Import()(TRUE, &localeId)))
+            return localeId;
+    }
 
     return MAKELCID(MAKELANGID(LANG_ENGLISH, SUBLANG_DEFAULT), SORT_DEFAULT);
 }
@@ -235,10 +241,13 @@ LANGID PhGetUserDefaultUILanguage(
     VOID
     )
 {
-    LANGID languageId;
+    if (NtQueryDefaultUILanguage_Import())
+    {
+        LANGID languageId;
 
-    if (NT_SUCCESS(NtQueryDefaultUILanguage(&languageId)))
-        return languageId;
+        if (NT_SUCCESS(NtQueryDefaultUILanguage_Import()(&languageId)))
+            return languageId;
+    }
 
     return MAKELANGID(LANG_ENGLISH, SUBLANG_DEFAULT);
 }
@@ -256,6 +265,34 @@ PPH_STRING PhGetUserDefaultLocaleName(
     if (NT_SUCCESS(RtlLcidToLocaleName(PhGetUserDefaultLCID(), &localeNameUs, 0, FALSE)))
     {
         return PhCreateStringFromUnicodeString(&localeNameUs);
+    }
+
+    return NULL;
+}
+
+// rev from LCIDToLocaleName
+PPH_STRING PhLCIDToLocaleName(
+    _In_ LCID lcid
+    )
+{
+    UNICODE_STRING localeNameUs;
+    WCHAR localeName[LOCALE_NAME_MAX_LENGTH];
+
+    RtlInitEmptyUnicodeString(&localeNameUs, localeName, sizeof(localeName));
+
+    if (lcid)
+    {
+        if (NT_SUCCESS(RtlLcidToLocaleName(lcid, &localeNameUs, 0, FALSE)))
+        {
+            return PhCreateStringFromUnicodeString(&localeNameUs);
+        }
+    }
+    else // Return the current user locale when zero is specified.
+    {
+        if (NT_SUCCESS(RtlLcidToLocaleName(PhGetUserDefaultLCID(), &localeNameUs, 0, FALSE)))
+        {
+            return PhCreateStringFromUnicodeString(&localeNameUs);
+        }
     }
 
     return NULL;
@@ -2542,20 +2579,20 @@ NTSTATUS PhCreateProcess(
     if (NT_SUCCESS(status))
     {
         if (!(Flags & PH_CREATE_PROCESS_SUSPENDED))
-            NtResumeThread(processInfo.Thread, NULL);
+            NtResumeThread(processInfo.ThreadHandle, NULL);
 
         if (ClientId)
             *ClientId = processInfo.ClientId;
 
         if (ProcessHandle)
-            *ProcessHandle = processInfo.Process;
+            *ProcessHandle = processInfo.ProcessHandle;
         else
-            NtClose(processInfo.Process);
+            NtClose(processInfo.ProcessHandle);
 
         if (ThreadHandle)
-            *ThreadHandle = processInfo.Thread;
+            *ThreadHandle = processInfo.ThreadHandle;
         else
-            NtClose(processInfo.Thread);
+            NtClose(processInfo.ThreadHandle);
     }
 
     return status;
@@ -2814,7 +2851,11 @@ NTSTATUS PhCreateProcessAsUser(
 
         if (Flags & PH_CREATE_PROCESS_SET_SESSION_ID)
         {
-            if (Information->SessionId != NtCurrentPeb()->SessionId)
+            ULONG sessionId = ULONG_MAX;
+
+            PhGetProcessSessionId(NtCurrentProcess(), &sessionId);
+
+            if (Information->SessionId != sessionId)
                 useWithLogon = FALSE;
         }
 
@@ -5461,7 +5502,7 @@ PPH_STRING PhLoadIndirectString(
             // HACK: Services.exe includes custom logic for indirect Service description strings by reading descriptions from inf files,
             // these strings use the following format: "@FileName.inf,%SectionKeyName%;DefaultString".
             // Return the last token of the service string instead of locating and parsing the inf file with GetPrivateProfileString.
-            if (dllIndexRef.Buffer[0] == L'%' && PhSplitStringRefAtChar(&sourceRef, L';', &dllNameRef, &dllIndexRef))
+            if (PhSplitStringRefAtChar(&sourceRef, L';', &dllNameRef, &dllIndexRef)) // dllIndexRef.Buffer[0] == L'%'
                 return PhCreateString2(&dllIndexRef);
             else
                 return NULL;
@@ -5942,7 +5983,21 @@ PVOID PhGetLoaderEntryImageExportFunction(
 
             if (libraryModule = LoadLibrary(libraryNameString->Buffer))
             {
-                exportAddress = PhGetDllBaseProcedureAddress(libraryModule, libraryFunctionString->Buffer, 0);
+                if (libraryFunctionString->Buffer[0] == L'#') // This is a forwarder RVA with an ordinal import.
+                {
+                    ULONG64 importOrdinal;
+
+                    PhSkipStringRef(&dllProcedureRef, sizeof(WCHAR));
+
+                    if (PhStringToInteger64(&dllProcedureRef, 10, &importOrdinal))
+                        exportAddress = PhGetDllBaseProcedureAddress(libraryModule, NULL, (USHORT)importOrdinal);
+                    else
+                        exportAddress = PhGetDllBaseProcedureAddress(libraryModule, libraryFunctionString->Buffer, 0);
+                }
+                else
+                {
+                    exportAddress = PhGetDllBaseProcedureAddress(libraryModule, libraryFunctionString->Buffer, 0);
+                }
             }
 
             PhDereferenceObject(libraryFunctionString);

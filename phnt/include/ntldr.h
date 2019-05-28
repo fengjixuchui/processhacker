@@ -557,6 +557,14 @@ LdrUnregisterDllNotification(
 
 // end_msdn
 
+// rev
+NTSYSAPI
+PUNICODE_STRING
+NTAPI
+LdrStandardizeSystemPath(
+    _In_ PUNICODE_STRING SystemPath
+    );
+
 // private
 typedef struct _PS_MITIGATION_OPTIONS_MAP
 {
@@ -936,6 +944,16 @@ NTAPI
 LdrControlFlowGuardEnforced(
     VOID
     );
+
+#if (PHNT_VERSION >= PHNT_19H1)
+// rev
+NTSYSAPI
+BOOLEAN
+NTAPI
+LdrIsModuleSxsRedirected(
+    _In_ PVOID DllHandle
+    );
+#endif
 
 #endif // (PHNT_MODE != PHNT_MODE_KERNEL)
 

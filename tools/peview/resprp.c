@@ -121,7 +121,7 @@ INT_PTR CALLBACK PvpPeResourcesDlgProc(
 
                     entry = resources.ResourceEntries[i];
 
-                    PhPrintUInt64(number, ++count);
+                    PhPrintUInt32(number, ++count);
                     lvItemIndex = PhAddListViewItem(lvHandle, MAXINT, number, NULL);
 
                     if (IS_INTRESOURCE(entry.Type))
@@ -188,7 +188,7 @@ INT_PTR CALLBACK PvpPeResourcesDlgProc(
                         PhDereferenceObject(string);
                     }
 
-                    PhSetListViewSubItem(lvHandle, lvItemIndex, PVE_RESOURCES_COLUMN_INDEX_SIZE, PhaFormatSize(entry.Size, -1)->Buffer);
+                    PhSetListViewSubItem(lvHandle, lvItemIndex, PVE_RESOURCES_COLUMN_INDEX_SIZE, PhaFormatSize(entry.Size, ULONG_MAX)->Buffer);
 
                     // dmex: This crashes when enumerating resources of VM protected binaries.
                     //if (entry.Data && entry.Size)

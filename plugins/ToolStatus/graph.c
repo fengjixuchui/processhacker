@@ -546,8 +546,8 @@ static PPH_STRING PhSipGetMaxIoString(
                 L"\n%s (%u): R+O: %s, W: %s",
                 maxProcessRecord->ProcessName->Buffer,
                 HandleToUlong(maxProcessRecord->ProcessId),
-                PhaFormatSize(maxIoReadOther, -1)->Buffer,
-                PhaFormatSize(maxIoWrite, -1)->Buffer
+                PhaFormatSize(maxIoReadOther, ULONG_MAX)->Buffer,
+                PhaFormatSize(maxIoWrite, ULONG_MAX)->Buffer
                 );
         }
         else
@@ -555,8 +555,8 @@ static PPH_STRING PhSipGetMaxIoString(
             maxUsageString = PhaFormatString(
                 L"\n%s: R+O: %s, W: %s",
                 maxProcessRecord->ProcessName->Buffer,
-                PhaFormatSize(maxIoReadOther, -1)->Buffer,
-                PhaFormatSize(maxIoWrite, -1)->Buffer
+                PhaFormatSize(maxIoReadOther, ULONG_MAX)->Buffer,
+                PhaFormatSize(maxIoWrite, ULONG_MAX)->Buffer
                 );
         }
 
@@ -582,7 +582,7 @@ TOOLSTATUS_GRAPH_MESSAGE_CALLBACK_DECLARE(CpuHistoryGraphMessageCallback)
             drawInfo->Flags = PH_GRAPH_USE_GRID_X | PH_GRAPH_USE_LINE_2;
             PhSiSetColorsGraphDrawInfo(drawInfo, PhGetIntegerSetting(L"ColorCpuKernel"), PhGetIntegerSetting(L"ColorCpuUser"));
 
-            if (ProcessesUpdatedCount < 2)
+            if (ProcessesUpdatedCount < 3)
                 return;
 
             PhGraphStateGetDrawInfo(GraphState, getDrawInfo, SystemStatistics.CpuUserHistory->Count);
@@ -654,7 +654,7 @@ TOOLSTATUS_GRAPH_MESSAGE_CALLBACK_DECLARE(PhysicalHistoryGraphMessageCallback)
             drawInfo->Flags = PH_GRAPH_USE_GRID_X;
             PhSiSetColorsGraphDrawInfo(drawInfo, PhGetIntegerSetting(L"ColorPhysical"), 0);
 
-            if (ProcessesUpdatedCount < 2)
+            if (ProcessesUpdatedCount < 3)
                 return;
 
             PhGraphStateGetDrawInfo(GraphState, getDrawInfo, SystemStatistics.PhysicalHistory->Count);
@@ -670,7 +670,7 @@ TOOLSTATUS_GRAPH_MESSAGE_CALLBACK_DECLARE(PhysicalHistoryGraphMessageCallback)
                     GraphState->Data1,
                     (FLOAT)PhSystemBasicInformation.NumberOfPhysicalPages,
                     drawInfo->LineDataCount
-                );
+                    );
 
                 GraphState->Valid = TRUE;
             }
@@ -690,9 +690,9 @@ TOOLSTATUS_GRAPH_MESSAGE_CALLBACK_DECLARE(PhysicalHistoryGraphMessageCallback)
 
                     PhMoveReference(&GraphState->TooltipText, PhFormatString(
                         L"Physical memory: %s\n%s",
-                        PhaFormatSize(UInt32x32To64(physicalUsage, PAGE_SIZE), -1)->Buffer,
+                        PhaFormatSize(UInt32x32To64(physicalUsage, PAGE_SIZE), ULONG_MAX)->Buffer,
                         PH_AUTO_T(PH_STRING, PhGetStatisticsTimeString(NULL, getTooltipText->Index))->Buffer
-                    ));
+                        ));
                 }
 
                 getTooltipText->Text = PhGetStringRef(GraphState->TooltipText);
@@ -719,7 +719,7 @@ TOOLSTATUS_GRAPH_MESSAGE_CALLBACK_DECLARE(CommitHistoryGraphMessageCallback)
             drawInfo->Flags = PH_GRAPH_USE_GRID_X;
             PhSiSetColorsGraphDrawInfo(drawInfo, PhGetIntegerSetting(L"ColorPrivate"), 0);
 
-            if (ProcessesUpdatedCount < 2)
+            if (ProcessesUpdatedCount < 3)
                 return;
 
             PhGraphStateGetDrawInfo(GraphState, getDrawInfo, SystemStatistics.CommitHistory->Count);
@@ -755,7 +755,7 @@ TOOLSTATUS_GRAPH_MESSAGE_CALLBACK_DECLARE(CommitHistoryGraphMessageCallback)
 
                     PhMoveReference(&GraphState->TooltipText, PhFormatString(
                         L"Commit charge: %s\n%s",
-                        PhaFormatSize(UInt32x32To64(commitUsage, PAGE_SIZE), -1)->Buffer,
+                        PhaFormatSize(UInt32x32To64(commitUsage, PAGE_SIZE), ULONG_MAX)->Buffer,
                         PH_AUTO_T(PH_STRING, PhGetStatisticsTimeString(NULL, getTooltipText->Index))->Buffer
                         ));
                 }
@@ -784,7 +784,7 @@ TOOLSTATUS_GRAPH_MESSAGE_CALLBACK_DECLARE(IoHistoryGraphMessageCallback)
             drawInfo->Flags = PH_GRAPH_USE_GRID_X | PH_GRAPH_USE_LINE_2;
             PhSiSetColorsGraphDrawInfo(drawInfo, PhGetIntegerSetting(L"ColorIoReadOther"), PhGetIntegerSetting(L"ColorIoWrite"));
 
-            if (ProcessesUpdatedCount < 2)
+            if (ProcessesUpdatedCount < 3)
                 return;
 
             PhGraphStateGetDrawInfo(GraphState, getDrawInfo, SystemStatistics.IoReadHistory->Count);
@@ -830,9 +830,9 @@ TOOLSTATUS_GRAPH_MESSAGE_CALLBACK_DECLARE(IoHistoryGraphMessageCallback)
 
                     PhMoveReference(&GraphState->TooltipText, PhFormatString(
                         L"R: %s\nW: %s\nO: %s%s\n%s",
-                        PhaFormatSize(ioRead, -1)->Buffer,
-                        PhaFormatSize(ioWrite, -1)->Buffer,
-                        PhaFormatSize(ioOther, -1)->Buffer,
+                        PhaFormatSize(ioRead, ULONG_MAX)->Buffer,
+                        PhaFormatSize(ioWrite, ULONG_MAX)->Buffer,
+                        PhaFormatSize(ioOther, ULONG_MAX)->Buffer,
                         PhGetStringOrEmpty(PhSipGetMaxIoString(getTooltipText->Index)),
                         PH_AUTO_T(PH_STRING, PhGetStatisticsTimeString(NULL, getTooltipText->Index))->Buffer
                         ));

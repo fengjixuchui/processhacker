@@ -179,40 +179,6 @@ PhGetProcessPeb32(
 }
 
 /**
- * Gets whether a process is being debugged.
- *
- * \param ProcessHandle A handle to a process. The handle must have PROCESS_QUERY_INFORMATION
- * access.
- * \param IsBeingDebugged A variable which receives a boolean indicating whether the process is
- * being debugged.
- */
-FORCEINLINE
-NTSTATUS
-PhGetProcessIsBeingDebugged(
-    _In_ HANDLE ProcessHandle,
-    _Out_ PBOOLEAN IsBeingDebugged
-    )
-{
-    NTSTATUS status;
-    PVOID debugPort;
-
-    status = NtQueryInformationProcess(
-        ProcessHandle,
-        ProcessDebugPort,
-        &debugPort,
-        sizeof(PVOID),
-        NULL
-        );
-
-    if (NT_SUCCESS(status))
-    {
-        *IsBeingDebugged = !!debugPort;
-    }
-
-    return status;
-}
-
-/**
  * Gets a handle to a process' debug object.
  *
  * \param ProcessHandle A handle to a process. The handle must have PROCESS_QUERY_INFORMATION
@@ -966,7 +932,7 @@ PhGetThreadBreakOnTermination(
 FORCEINLINE
 NTSTATUS
 PhSetThreadBreakOnTermination(
-    _In_ HANDLE ProcessHandle,
+    _In_ HANDLE ThreadHandle,
     _In_ BOOLEAN BreakOnTermination
     )
 {
@@ -975,10 +941,59 @@ PhSetThreadBreakOnTermination(
     breakOnTermination = BreakOnTermination ? 1 : 0;
 
     return NtSetInformationThread(
-        ProcessHandle,
+        ThreadHandle,
         ThreadBreakOnTermination,
         &breakOnTermination,
         sizeof(ULONG)
+        );
+}
+
+FORCEINLINE
+NTSTATUS
+PhGetThreadIsIoPending(
+    _In_ HANDLE ThreadHandle,
+    _Out_ PBOOLEAN IsIoPending
+    )
+{
+    NTSTATUS status;
+    ULONG isIoPending;
+
+    status = NtQueryInformationThread(
+        ThreadHandle,
+        ThreadIsIoPending,
+        &isIoPending,
+        sizeof(ULONG),
+        NULL
+        );
+
+    if (NT_SUCCESS(status))
+    {
+        *IsIoPending = !!isIoPending;
+    }
+
+    return status;
+}
+
+/**
+ * Gets time information for a thread.
+ *
+ * \param ProcessHandle A handle to a thread. The handle must have
+ * THREAD_QUERY_LIMITED_INFORMATION access.
+ * \param Times A variable which receives the information.
+ */
+FORCEINLINE
+NTSTATUS
+PhGetThreadTimes(
+    _In_ HANDLE ThreadHandle,
+    _Out_ PKERNEL_USER_TIMES Times
+    )
+{
+    return NtQueryInformationThread(
+        ThreadHandle,
+        ThreadTimes,
+        Times,
+        sizeof(KERNEL_USER_TIMES),
+        NULL
         );
 }
 

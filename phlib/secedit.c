@@ -79,6 +79,14 @@ static IDataObjectVtbl PhDataObject_VTable =
     PhSecurityDataObject_EnumDAdvise
 };
 
+static ISecurityObjectTypeInfoExVtbl PhSecurityObjectTypeInfo_VTable3 =
+{
+    PhSecurityObjectTypeInfo_QueryInterface,
+    PhSecurityObjectTypeInfo_AddRef,
+    PhSecurityObjectTypeInfo_Release,
+    PhSecurityObjectTypeInfo_GetInheritSource
+};
+
 /**
  * Creates a security editor page.
  *
@@ -164,11 +172,11 @@ VOID PhEditSecurity(
 }
 
 ISecurityInformation *PhSecurityInformation_Create(
-    _In_ HWND WindowHandle,
+    _In_opt_ HWND WindowHandle,
     _In_ PWSTR ObjectName,
     _In_ PWSTR ObjectType,
     _In_ PPH_OPEN_OBJECT OpenObject,
-    _In_ PPH_CLOSE_OBJECT CloseObject,
+    _In_opt_ PPH_CLOSE_OBJECT CloseObject,
     _In_opt_ PVOID Context,
     _In_ BOOLEAN IsPage
     )
@@ -201,6 +209,9 @@ ISecurityInformation *PhSecurityInformation_Create(
                 info->AccessEntries[i].dwFlags |= SI_ACCESS_GENERAL;
             if (info->AccessEntriesArray[i].Specific)
                 info->AccessEntries[i].dwFlags |= SI_ACCESS_SPECIFIC;
+
+            if (PhEqualString2(info->ObjectType, L"FileObject", TRUE)) // TODO: Remove PhEqualString2 (dmex)
+                info->AccessEntries[i].dwFlags |= OBJECT_INHERIT_ACE | CONTAINER_INHERIT_ACE;
         }
     }
 
@@ -247,6 +258,21 @@ HRESULT STDMETHODCALLTYPE PhSecurityInformation_QueryInterface(
 
             info = PhAllocateZero(sizeof(PhSecurityInformation3));
             info->VTable = &PhSecurityInformation_VTable3;
+            info->Context = this;
+            info->RefCount = 1;
+
+            *Object = info;
+            return S_OK;
+        }
+    }
+    else if (IsEqualGUID(Riid, &IID_ISecurityObjectTypeInfo))
+    {
+        if (WindowsVersion >= WINDOWS_8)
+        {
+            PhSecurityObjectTypeInfo* info;
+
+            info = PhAllocateZero(sizeof(PhSecurityObjectTypeInfo));
+            info->VTable = &PhSecurityObjectTypeInfo_VTable3;
             info->Context = this;
             info->RefCount = 1;
 
@@ -311,6 +337,11 @@ HRESULT STDMETHODCALLTYPE PhSecurityInformation_GetObjectInformation(
     ObjectInfo->dwFlags = SI_EDIT_ALL | SI_ADVANCED | (WindowsVersion >= WINDOWS_8 ? SI_VIEW_ONLY : 0);
     ObjectInfo->pszObjectName = PhGetString(this->ObjectName);
 
+    if (PhEqualString2(this->ObjectType, L"FileObject", TRUE))
+    {
+        ObjectInfo->dwFlags |= SI_ENABLE_EDIT_ATTRIBUTE_CONDITION | SI_MAY_WRITE; // SI_RESET | SI_READONLY
+        //if (Folder) ObjectInfo->dwFlags |= SI_CONTAINER;
+    }
     if (PhEqualString2(this->ObjectType, L"TokenDefault", TRUE))
     {
         ObjectInfo->dwFlags &= ~(SI_EDIT_OWNER | SI_EDIT_AUDITS);
@@ -332,14 +363,34 @@ HRESULT STDMETHODCALLTYPE PhSecurityInformation_GetSecurity(
     ULONG sdLength;
     PSECURITY_DESCRIPTOR newSd;
 
-    status = PhStdGetObjectSecurity(
-        &securityDescriptor,
-        RequestedInformation,
-        this
-        );
+    //if (Default)
+    //{
+    //    securityDescriptor = PhAllocateZero(SECURITY_DESCRIPTOR_MIN_LENGTH);
+    //
+    //    status = RtlCreateSecurityDescriptor(
+    //        securityDescriptor,
+    //        SECURITY_DESCRIPTOR_REVISION
+    //        );
+    //
+    //    if (!NT_SUCCESS(status))
+    //        return HRESULT_FROM_WIN32(PhNtStatusToDosError(status));
+    //
+    //    status = RtlSetDaclSecurityDescriptor(securityDescriptor, TRUE, NULL, FALSE);
+    //
+    //    if (!NT_SUCCESS(status))
+    //        return HRESULT_FROM_WIN32(PhNtStatusToDosError(status));
+    //}
+    //else
+    {
+        status = PhStdGetObjectSecurity(
+            &securityDescriptor,
+            RequestedInformation,
+            this
+            );
 
-    if (!NT_SUCCESS(status))
-        return HRESULT_FROM_WIN32(PhNtStatusToDosError(status));
+        if (!NT_SUCCESS(status))
+            return HRESULT_FROM_WIN32(PhNtStatusToDosError(status));
+    }
 
     sdLength = RtlLengthSecurityDescriptor(securityDescriptor);
     newSd = LocalAlloc(0, sdLength);
@@ -397,6 +448,41 @@ HRESULT STDMETHODCALLTYPE PhSecurityInformation_MapGeneric(
     _Inout_ PACCESS_MASK Mask
     )
 {
+    PhSecurityInformation* this = (PhSecurityInformation*)This;
+
+    if (PhEqualString2(this->ObjectType, L"FileObject", TRUE))
+    {
+        static GENERIC_MAPPING genericMappings =
+        {
+            FILE_GENERIC_READ,
+            FILE_GENERIC_WRITE,
+            FILE_GENERIC_EXECUTE,
+            FILE_ALL_ACCESS
+        };
+
+        RtlMapGenericMask(Mask, &genericMappings);
+    }
+
+    // TODO we're supposed to lookup the GenericMapping for the object type. (dmex)
+
+    //POBJECT_TYPES_INFORMATION objectTypes;
+    //POBJECT_TYPE_INFORMATION objectType;
+
+    //if (NT_SUCCESS(PhEnumObjectTypes(&objectTypes)))
+    //{
+    //    objectType = PH_FIRST_OBJECT_TYPE(objectTypes);
+    //
+    //    for (ULONG i = 0; i < objectTypes->NumberOfTypes; i++)
+    //    {
+    //        RtlMapGenericMask(Mask, &objectType->GenericMapping);
+    //    }
+    //
+    //    PhFree(objectTypes);
+    //}
+
+    // TODO
+    // NtQuerySystemInformation(SystemObjectInformation);
+
     return S_OK;
 }
 
@@ -406,7 +492,21 @@ HRESULT STDMETHODCALLTYPE PhSecurityInformation_GetInheritTypes(
     _Out_ PULONG InheritTypesCount
     )
 {
-    return E_NOTIMPL;
+    static SI_INHERIT_TYPE inheritTypes[] =
+    {
+        0, 0, L"This folder only",
+        0, CONTAINER_INHERIT_ACE, L"This folder, subfolders and files",
+        0, INHERIT_ONLY_ACE | CONTAINER_INHERIT_ACE, L"Subfolders and files only",
+    };
+
+    PhSecurityInformation* this = (PhSecurityInformation*)This;
+
+    // if (Folder-Container)
+    *InheritTypes = inheritTypes;
+    *InheritTypesCount = RTL_NUMBER_OF(inheritTypes);
+    return S_OK;
+    // else
+    //return E_NOTIMPL;
 }
 
 HRESULT STDMETHODCALLTYPE PhSecurityInformation_PropertySheetPageCallback(
@@ -783,6 +883,100 @@ HRESULT STDMETHODCALLTYPE PhSecurityDataObject_EnumDAdvise(
     return E_NOTIMPL;
 }
 
+// ISecurityObjectTypeInfo
+
+HRESULT STDMETHODCALLTYPE PhSecurityObjectTypeInfo_QueryInterface(
+    _In_ ISecurityObjectTypeInfoEx* This,
+    _In_ REFIID Riid,
+    _Out_ PVOID* Object
+    )
+{
+    if (
+        IsEqualIID(Riid, &IID_IUnknown) ||
+        IsEqualIID(Riid, &IID_ISecurityObjectTypeInfo)
+        )
+    {
+        PhSecurityObjectTypeInfo_AddRef(This);
+        *Object = This;
+        return S_OK;
+    }
+
+    *Object = NULL;
+    return E_NOINTERFACE;
+}
+
+ULONG STDMETHODCALLTYPE PhSecurityObjectTypeInfo_AddRef(
+    _In_ ISecurityObjectTypeInfoEx* This
+    )
+{
+    PhSecurityObjectTypeInfo* this = (PhSecurityObjectTypeInfo*)This;
+
+    this->RefCount++;
+
+    return this->RefCount;
+}
+
+ULONG STDMETHODCALLTYPE PhSecurityObjectTypeInfo_Release(
+    _In_ ISecurityObjectTypeInfoEx* This
+    )
+{
+    PhSecurityObjectTypeInfo* this = (PhSecurityObjectTypeInfo*)This;
+
+    this->RefCount--;
+
+    if (this->RefCount == 0)
+    {
+        PhFree(this);
+        return 0;
+    }
+
+    return this->RefCount;
+}
+
+HRESULT STDMETHODCALLTYPE PhSecurityObjectTypeInfo_GetInheritSource(
+    _In_ ISecurityObjectTypeInfoEx* This,
+    _In_ SECURITY_INFORMATION SecurityInfo,
+    _In_ PACL Acl,
+    _Out_ PINHERITED_FROM* InheritArray
+    )
+{
+    static GENERIC_MAPPING genericMappings =
+    {
+        FILE_GENERIC_READ,
+        FILE_GENERIC_WRITE,
+        FILE_GENERIC_EXECUTE,
+        FILE_ALL_ACCESS
+    };
+
+    PhSecurityObjectTypeInfo* this = (PhSecurityObjectTypeInfo*)This;
+    PINHERITED_FROM result;
+    ULONG status;
+
+    result = (PINHERITED_FROM)LocalAlloc(LPTR, ((ULONGLONG)Acl->AceCount + 1) * sizeof(INHERITED_FROM));
+
+    if ((status = GetInheritanceSource(
+        PhGetString(this->Context->ObjectName),
+        SE_FILE_OBJECT,
+        SecurityInfo,
+        TRUE, // Container
+        NULL,
+        0,
+        Acl,
+        NULL,
+        &genericMappings,
+        result
+        )) == ERROR_SUCCESS)
+    {
+        *InheritArray = result;
+    }
+    else
+    {
+        LocalFree(result);
+    }
+
+    return HRESULT_FROM_WIN32(status);
+}
+
 NTSTATUS PhpGetObjectSecurityWithTimeout(
     _In_ HANDLE Handle,
     _In_ SECURITY_INFORMATION SecurityInformation,
@@ -871,6 +1065,11 @@ _Callback_ NTSTATUS PhStdGetObjectSecurity(
     else if (PhEqualString2(this->ObjectType, L"File", TRUE))
     {
         status = PhpGetObjectSecurityWithTimeout(handle, SecurityInformation, SecurityDescriptor);
+        NtClose(handle);
+    }
+    else if (PhEqualString2(this->ObjectType, L"FileObject", TRUE))
+    {
+        status = PhGetSeObjectSecurity(handle, SE_FILE_OBJECT, SecurityInformation, SecurityDescriptor);
         NtClose(handle);
     }
     else if (
@@ -1007,6 +1206,16 @@ _Callback_ NTSTATUS PhStdSetObjectSecurity(
     {
         status = PhSetSeObjectSecurity(handle, SE_SERVICE, SecurityInformation, SecurityDescriptor);
         CloseServiceHandle(handle);
+    }
+    else if (PhEqualString2(this->ObjectType, L"File", TRUE))
+    {
+        status = PhSetObjectSecurity(handle, SecurityInformation, SecurityDescriptor);
+        NtClose(handle);
+    }
+    else if (PhEqualString2(this->ObjectType, L"FileObject", TRUE))
+    {
+        status = PhSetSeObjectSecurity(handle, SE_FILE_OBJECT, SecurityInformation, SecurityDescriptor);
+        NtClose(handle);
     }
     else if (
         PhEqualString2(this->ObjectType, L"LsaAccount", TRUE) ||
@@ -1151,10 +1360,35 @@ NTSTATUS PhSetSeObjectSecurity(
             securityInformation |= SACL_SECURITY_INFORMATION;
     }
 
+    if (ObjectType == SE_FILE_OBJECT) // probably works with other types but haven't checked (dmex)
+    {
+        SECURITY_DESCRIPTOR_CONTROL control;
+        ULONG revision;
+
+        if (NT_SUCCESS(RtlGetControlSecurityDescriptor(SecurityDescriptor, &control, &revision)))
+        {
+            if (SecurityInformation & DACL_SECURITY_INFORMATION)
+            {
+                if (control & SE_DACL_PROTECTED)
+                    securityInformation |= PROTECTED_DACL_SECURITY_INFORMATION;
+                else
+                    securityInformation |= UNPROTECTED_DACL_SECURITY_INFORMATION;
+            }
+
+            if (SecurityInformation & SACL_SECURITY_INFORMATION)
+            {
+                if (control & SE_SACL_PROTECTED)
+                    securityInformation |= PROTECTED_SACL_SECURITY_INFORMATION;
+                else
+                    securityInformation |= UNPROTECTED_SACL_SECURITY_INFORMATION;
+            }
+        }
+    }
+
     win32Result = SetSecurityInfo(
         Handle,
         ObjectType,
-        SecurityInformation,
+        securityInformation, // SecurityInformation
         owner,
         group,
         dacl,

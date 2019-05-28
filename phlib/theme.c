@@ -97,16 +97,16 @@ LRESULT CALLBACK PhpThemeWindowStatusbarWndSubclassProc(
     );
 
 // rev // Win10-RS5 (uxtheme.dll ordinal 132)
-BOOLEAN (WINAPI *ShouldAppsUseDarkMode_I)(
+BOOL (WINAPI *ShouldAppsUseDarkMode_I)(
     VOID
     ) = NULL;
 // rev // Win10-RS5 (uxtheme.dll ordinal 133)
-BOOLEAN (WINAPI *AllowDarkModeForWindow_I)(
+BOOL (WINAPI *AllowDarkModeForWindow_I)(
     _In_ HWND WindowHandle,
     _In_ BOOL Enabled
     ) = NULL;
 // rev // Win10-RS5 (uxtheme.dll ordinal 137)
-BOOLEAN (WINAPI *IsDarkModeAllowedForWindow_I)(
+BOOL (WINAPI *IsDarkModeAllowedForWindow_I)(
     _In_ HWND WindowHandle
     ) = NULL;
 
@@ -192,6 +192,29 @@ VOID PhInitializeWindowTheme(
     {
         EnableThemeDialogTexture(WindowHandle, ETDT_ENABLETAB);
     }
+}
+
+VOID PhInitializeWindowThemeEx(
+    _In_ HWND WindowHandle
+    )
+{
+    static PH_STRINGREF keyPath = PH_STRINGREF_INIT(L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize");
+    HANDLE keyHandle;
+    BOOLEAN enableThemeSupport = FALSE;
+
+    if (NT_SUCCESS(PhOpenKey(
+        &keyHandle,
+        KEY_READ,
+        PH_KEY_CURRENT_USER,
+        &keyPath,
+        0
+        )))
+    {
+        enableThemeSupport = !PhQueryRegistryUlong(keyHandle, L"AppsUseLightTheme");
+        NtClose(keyHandle);
+    }
+
+    PhInitializeWindowTheme(WindowHandle, enableThemeSupport);
 }
 
 VOID PhReInitializeWindowTheme(

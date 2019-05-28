@@ -72,14 +72,6 @@ NTSTATUS CallGetProcessUnloadedDlls(
     _Out_ PPH_STRING *UnloadedDlls
     );
 
-// Process icon
-
-typedef struct _ET_PROCESS_ICON
-{
-    LONG RefCount;
-    HICON Icon;
-} ET_PROCESS_ICON, *PET_PROCESS_ICON;
-
 // Disk item
 
 #define HISTORY_SIZE 60
@@ -93,9 +85,12 @@ typedef struct _ET_DISK_ITEM
     HANDLE ProcessId;
     PPH_STRING FileName;
     PPH_STRING FileNameWin32;
-
     PPH_STRING ProcessName;
-    PET_PROCESS_ICON ProcessIcon;
+
+    PPH_PROCESS_ITEM ProcessItem;
+    HICON ProcessIcon;
+    BOOLEAN ProcessIconValid;
+
     PPH_PROCESS_RECORD ProcessRecord;
 
     ULONG IoPriority;
@@ -250,8 +245,6 @@ typedef struct _ET_PROCESS_BLOCK
     PH_QUEUED_LOCK TextCacheLock;
     PPH_STRING TextCache[ETPRTNC_MAXIMUM + 1];
     BOOLEAN TextCacheValid[ETPRTNC_MAXIMUM + 1];
-
-    PET_PROCESS_ICON SmallProcessIcon;
 } ET_PROCESS_BLOCK, *PET_PROCESS_BLOCK;
 
 typedef struct _ET_NETWORK_BLOCK
@@ -341,6 +334,7 @@ VOID EtEtwStatisticsUninitialization(
 // etwdisk
 
 extern BOOLEAN EtDiskEnabled;
+extern ULONG EtRunCount;
 
 extern PPH_OBJECT_TYPE EtDiskItemType;
 extern PH_CALLBACK EtDiskItemAddedEvent;
@@ -363,28 +357,6 @@ PET_DISK_ITEM EtReferenceDiskItem(
 
 PPH_STRING EtFileObjectToFileName(
     _In_ PVOID FileObject
-    );
-
-// procicon
-
-PET_PROCESS_ICON EtProcIconCreateProcessIcon(
-    _In_ HICON Icon
-    );
-
-VOID EtProcIconReferenceProcessIcon(
-    _Inout_ PET_PROCESS_ICON ProcessIcon
-    );
-
-VOID EtProcIconDereferenceProcessIcon(
-    _Inout_ PET_PROCESS_ICON ProcessIcon
-    );
-
-PET_PROCESS_ICON EtProcIconReferenceSmallProcessIcon(
-    _Inout_ PET_PROCESS_BLOCK Block
-    );
-
-VOID EtProcIconNotifyProcessDelete(
-    _Inout_ PET_PROCESS_BLOCK Block
     );
 
 // etwprprp

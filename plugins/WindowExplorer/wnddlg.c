@@ -112,10 +112,10 @@ VOID WeShowWindowsDialog(
         context = PhAllocateZero(sizeof(WINDOWS_CONTEXT));
         memcpy(&context->Selector, Selector, sizeof(WE_WINDOW_SELECTOR));
 
-        if (!(WepWindowsDialogThreadHandle = PhCreateThread(0, WepShowWindowsDialogThread, context)))
+        if (!NT_SUCCESS(PhCreateThreadEx(&WepWindowsDialogThreadHandle, WepShowWindowsDialogThread, context)))
         {
             PhFree(context);
-            PhShowStatus(NULL, L"Unable to create the window.", 0, GetLastError());
+            PhShowError(ParentWindowHandle, L"Unable to create the window.");
             return;
         }
 
@@ -621,7 +621,7 @@ INT_PTR CALLBACK WepWindowsDlgProc(
                             contextMenuEvent->Location.y
                             );
 
-                        if (selectedItem && selectedItem->Id != -1)
+                        if (selectedItem && selectedItem->Id != ULONG_MAX)
                         {
                             BOOLEAN handled = FALSE;
 
@@ -1062,7 +1062,7 @@ INT_PTR CALLBACK WepWindowsPageProc(
                             contextMenuEvent->Location.y
                             );
 
-                        if (selectedItem && selectedItem->Id != -1)
+                        if (selectedItem && selectedItem->Id != ULONG_MAX)
                         {
                             BOOLEAN handled = FALSE;
 

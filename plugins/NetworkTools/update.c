@@ -364,9 +364,9 @@ NTSTATUS GeoIPUpdateThread(
             // TODO: Update on timer callback.
             {
                 FLOAT percent = ((FLOAT)downloadedBytes / contentLength * 100);
-                PPH_STRING totalLength = PhFormatSize(contentLength, -1);
-                PPH_STRING totalDownloaded = PhFormatSize(downloadedBytes, -1);
-                PPH_STRING totalSpeed = PhFormatSize(timeBitsPerSecond, -1);
+                PPH_STRING totalLength = PhFormatSize(contentLength, ULONG_MAX);
+                PPH_STRING totalDownloaded = PhFormatSize(downloadedBytes, ULONG_MAX);
+                PPH_STRING totalSpeed = PhFormatSize(timeBitsPerSecond, ULONG_MAX);
 
                 PPH_STRING statusMessage = PhFormatString(
                     L"Downloaded: %s of %s (%.0f%%)\r\nSpeed: %s/s",
@@ -675,9 +675,9 @@ VOID ShowGeoIPUpdateDialog(
 {
     if (!UpdateDialogThreadHandle)
     {
-        if (!(UpdateDialogThreadHandle = PhCreateThread(0, GeoIPUpdateDialogThread, NULL)))
+        if (!NT_SUCCESS(PhCreateThreadEx(&UpdateDialogThreadHandle, GeoIPUpdateDialogThread, NULL)))
         {
-            PhShowStatus(PhMainWndHandle, L"Unable to create the updater window.", 0, GetLastError());
+            PhShowError(PhMainWndHandle, L"Unable to create the window.");
             return;
         }
 

@@ -128,6 +128,7 @@
 #define IDD_COLUMNSETS                  243
 #define ID_VIEW_TRAYICONS               244
 #define IDD_OBJFILE                     249
+#define IDD_RUNFILEDLG                  253
 #define IDC_TERMINATE                   1003
 #define IDC_FILEICON                    1005
 #define IDC_FILE                        1006
@@ -517,7 +518,9 @@
 #define IDC_ZPAGINGPAGEFILEWRITESDELTA_V 1370
 #define IDC_PINWINDOW                   1370
 #define IDC_ZPAGINGMAPPEDWRITESDELTA_V  1371
+#define IDC_ZMAPPEDREADIO               1372
 #define IDC_ZLISTMODIFIEDPAGEFILE_V     1373
+#define IDC_ZMAPPEDWRITEIO              1374
 #define IDC_SECTION                     1375
 #define IDC_REGEX                       1377
 #define IDC_DESCRIPTIONLABEL            1378

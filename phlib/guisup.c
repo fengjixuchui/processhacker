@@ -169,50 +169,44 @@ INT PhFindListViewItemByParam(
     return ListView_FindItem(ListViewHandle, StartIndex, &findInfo);
 }
 
-LOGICAL PhGetListViewItemImageIndex(
+BOOLEAN PhGetListViewItemImageIndex(
     _In_ HWND ListViewHandle,
     _In_ INT Index,
     _Out_ PINT ImageIndex
     )
 {
-    LOGICAL result;
     LVITEM item;
 
     item.mask = LVIF_IMAGE;
     item.iItem = Index;
     item.iSubItem = 0;
 
-    result = ListView_GetItem(ListViewHandle, &item);
-
-    if (!result)
-        return result;
+    if (!ListView_GetItem(ListViewHandle, &item))
+        return FALSE;
 
     *ImageIndex = item.iImage;
 
-    return result;
+    return TRUE;
 }
 
-LOGICAL PhGetListViewItemParam(
+BOOLEAN PhGetListViewItemParam(
     _In_ HWND ListViewHandle,
     _In_ INT Index,
     _Out_ PVOID *Param
     )
 {
-    LOGICAL result;
     LVITEM item;
 
     item.mask = LVIF_PARAM;
     item.iItem = Index;
     item.iSubItem = 0;
 
-    result = ListView_GetItem(ListViewHandle, &item);
-
-    if (!result)
-        return result;
+    if (!ListView_GetItem(ListViewHandle, &item))
+        return FALSE;
 
     *Param = (PVOID)item.lParam;
 
-    return result;
+    return TRUE;
 }
 
 VOID PhRemoveListViewItem(
@@ -530,12 +524,12 @@ VOID PhSetStateAllListViewItems(
     _In_ ULONG Mask
     )
 {
-    ULONG i;
-    ULONG count;
+    INT i;
+    INT count;
 
     count = ListView_GetItemCount(hWnd);
 
-    if (count == -1)
+    if (count <= 0)
         return;
 
     for (i = 0; i < count; i++)
@@ -613,7 +607,7 @@ VOID PhSetImageListBitmap(
     if (bitmap)
     {
         ImageList_Replace(ImageList, Index, bitmap, NULL);
-        DeleteObject(bitmap);
+        DeleteBitmap(bitmap);
     }
 }
 
@@ -635,7 +629,7 @@ static BOOLEAN SharedIconCacheHashtableEqualFunction(
     if (IS_INTRESOURCE(entry1->Name))
     {
         if (IS_INTRESOURCE(entry2->Name))
-            return entry1->Name == entry2->Name;
+            return PtrToUlong(entry1->Name) == PtrToUlong(entry2->Name);
         else
             return FALSE;
     }
@@ -919,7 +913,7 @@ VOID PhSetClipboardString(
     HANDLE data;
     PVOID memory;
 
-    data = GlobalAlloc(GMEM_MOVEABLE, String->Length + sizeof(WCHAR));
+    data = GlobalAlloc(GMEM_MOVEABLE, String->Length + sizeof(UNICODE_NULL));
     memory = GlobalLock(data);
 
     memcpy(memory, String->Buffer, String->Length);
@@ -1389,6 +1383,14 @@ VOID PhRemoveWindowContext(
     PhReleaseQueuedLockExclusive(&WindowContextListLock);
 }
 
+VOID PhEnumWindows(
+    _In_ PH_ENUM_CALLBACK Callback,
+    _In_opt_ PVOID Context
+    )
+{
+    EnumWindows((WNDENUMPROC)Callback, (LPARAM)Context);
+}
+
 VOID PhEnumChildWindows(
     _In_opt_ HWND WindowHandle,
     _In_ ULONG Limit,
@@ -1417,14 +1419,13 @@ typedef struct _GET_PROCESS_MAIN_WINDOW_CONTEXT
     BOOLEAN SkipInvisible;
 } GET_PROCESS_MAIN_WINDOW_CONTEXT, *PGET_PROCESS_MAIN_WINDOW_CONTEXT;
 
-BOOLEAN CALLBACK PhpGetProcessMainWindowEnumWindowsProc(
+BOOL CALLBACK PhpGetProcessMainWindowEnumWindowsProc(
     _In_ HWND WindowHandle,
     _In_opt_ PVOID Context
     )
 {
     PGET_PROCESS_MAIN_WINDOW_CONTEXT context = (PGET_PROCESS_MAIN_WINDOW_CONTEXT)Context;
     ULONG processId;
-    HWND parentWindow;
     WINDOWINFO windowInfo;
 
     if (context->SkipInvisible && !IsWindowVisible(WindowHandle))
@@ -1432,9 +1433,11 @@ BOOLEAN CALLBACK PhpGetProcessMainWindowEnumWindowsProc(
 
     GetWindowThreadProcessId(WindowHandle, &processId);
 
-    if (UlongToHandle(processId) == context->ProcessId && (context->SkipInvisible ?
-        !((parentWindow = GetParent(WindowHandle)) && IsWindowVisible(parentWindow)) && // skip windows with a visible parent
-        PhGetWindowTextEx(WindowHandle, PH_GET_WINDOW_TEXT_INTERNAL | PH_GET_WINDOW_TEXT_LENGTH_ONLY, NULL) != 0 : TRUE)) // skip windows with no title
+    //if (UlongToHandle(processId) == context->ProcessId && (context->SkipInvisible ?
+    //    !((parentWindow = GetParent(WindowHandle)) && IsWindowVisible(parentWindow)) && // skip windows with a visible parent
+    //    PhGetWindowTextEx(WindowHandle, PH_GET_WINDOW_TEXT_INTERNAL | PH_GET_WINDOW_TEXT_LENGTH_ONLY, NULL) != 0 : TRUE)) // skip windows with no title
+
+    if (UlongToHandle(processId) == context->ProcessId)
     {
         if (!context->ImmersiveWindow && context->IsImmersive &&
             GetProp(WindowHandle, L"Windows.ImmersiveShell.IdentifyAsMainCoreWindow"))
@@ -1486,7 +1489,8 @@ HWND PhGetProcessMainWindowEx(
     if (processHandle && WINDOWS_HAS_IMMERSIVE && IsImmersiveProcess)
         context.IsImmersive = IsImmersiveProcess(processHandle);
 
-    PhEnumChildWindows(NULL, 0x800, PhpGetProcessMainWindowEnumWindowsProc, &context);
+    PhEnumWindows(PhpGetProcessMainWindowEnumWindowsProc, &context);
+    //PhEnumChildWindows(NULL, 0x800, PhpGetProcessMainWindowEnumWindowsProc, &context);
 
     if (!ProcessHandle && processHandle)
         NtClose(processHandle);
@@ -1663,46 +1667,6 @@ VOID PhWindowNotifyTopMostEvent(
     PhReleaseQueuedLockExclusive(&WindowCallbackListLock);
 }
 
-BOOLEAN PhShowRunFileDialog(
-    _In_ HWND WindowHandle,
-    _In_opt_ HICON WindowIcon,
-    _In_opt_ PWSTR WorkingDirectory,
-    _In_opt_ PWSTR WindowTitle,
-    _In_opt_ PWSTR WindowDescription,
-    _In_ ULONG Flags
-    )
-{
-    BOOL (WINAPI *RunFileDlg_I)(
-        _In_ HWND hwndOwner,
-        _In_opt_ HICON hIcon,
-        _In_opt_ LPCWSTR lpszDirectory,
-        _In_opt_ LPCWSTR lpszTitle,
-        _In_opt_ LPCWSTR lpszDescription,
-        _In_ ULONG uFlags
-        );
-    BOOLEAN result = FALSE;
-    PVOID shell32Handle;
-
-    if (shell32Handle = LoadLibrary(L"shell32.dll"))
-    {
-        if (RunFileDlg_I = PhGetDllBaseProcedureAddress(shell32Handle, NULL, 61))
-        {
-            result = !!RunFileDlg_I(
-                WindowHandle,
-                WindowIcon,
-                WorkingDirectory,
-                WindowTitle,
-                WindowDescription,
-                Flags
-                );
-        }
-
-        FreeLibrary(shell32Handle);
-    }
-
-    return result;
-}
-
 HICON PhGetInternalWindowIcon(
     _In_ HWND WindowHandle,
     _In_ UINT Type
@@ -1729,5 +1693,5 @@ HICON PhGetInternalWindowIcon(
     if (!InternalGetWindowIcon_I)
         return NULL; 
 
-    return InternalGetWindowIcon_I(WindowHandle, Type);;
+    return InternalGetWindowIcon_I(WindowHandle, Type);
 }

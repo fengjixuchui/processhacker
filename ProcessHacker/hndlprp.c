@@ -548,7 +548,12 @@ VOID PhpUpdateHandleGeneral(
 
     PhSetListViewSubItem(Context->ListViewHandle, Context->ListViewRowCache[PH_HANDLE_GENERAL_INDEX_NAME], 1, PhGetStringOrEmpty(Context->HandleItem->BestObjectName));
     PhSetListViewSubItem(Context->ListViewHandle, Context->ListViewRowCache[PH_HANDLE_GENERAL_INDEX_TYPE], 1, PhGetStringOrEmpty(Context->HandleItem->TypeName));
-    PhSetListViewSubItem(Context->ListViewHandle, Context->ListViewRowCache[PH_HANDLE_GENERAL_INDEX_OBJECT], 1, Context->HandleItem->ObjectString);
+
+    if (Context->HandleItem->Object)
+    {
+        PhPrintPointer(string, Context->HandleItem->Object);
+        PhSetListViewSubItem(Context->ListViewHandle, Context->ListViewRowCache[PH_HANDLE_GENERAL_INDEX_OBJECT], 1, string);
+    }
 
     if (PhGetAccessEntries(
         PhGetStringOrEmpty(Context->HandleItem->TypeName),
@@ -1061,7 +1066,7 @@ VOID PhpUpdateHandleGeneral(
                 exitcode = PhFormatString(
                     L"0x%x (%s)",
                     exitStatus,
-                    status->Buffer
+                    PhGetStringOrDefault(status, L"Unknown")
                     );
 
                 PhSetListViewSubItem(
@@ -1072,7 +1077,7 @@ VOID PhpUpdateHandleGeneral(
                     );
 
                 PhDereferenceObject(exitcode);
-                PhDereferenceObject(status);
+                PhClearReference(&status);
             }
 
             NtClose(dupHandle);
@@ -1161,7 +1166,7 @@ VOID PhpUpdateHandleGeneral(
                 exitcode = PhFormatString(
                     L"0x%x (%s)",
                     exitStatus,
-                    status->Buffer
+                    PhGetStringOrDefault(status, L"Unknown")
                     );
 
                 PhSetListViewSubItem(
@@ -1172,7 +1177,7 @@ VOID PhpUpdateHandleGeneral(
                     );
 
                 PhDereferenceObject(exitcode);
-                PhDereferenceObject(status);
+                PhClearReference(&status);
             }
 
             NtClose(dupHandle);

@@ -335,8 +335,8 @@ INT_PTR CALLBACK NetworkPingWndProc(
             else
                 PhCenterWindow(hwndDlg, PhMainWndHandle);
 
-            SetWindowText(hwndDlg, PhaFormatString(L"Ping %s", context->IpAddressString)->Buffer);
-            SetWindowText(context->StatusHandle, PhaFormatString(L"Pinging %s with %lu bytes of data...",
+            PhSetWindowText(hwndDlg, PhaFormatString(L"Ping %s", context->IpAddressString)->Buffer);
+            PhSetWindowText(context->StatusHandle, PhaFormatString(L"Pinging %s with %lu bytes of data...",
                 context->IpAddressString,
                 PhGetIntegerSetting(SETTING_NAME_PING_SIZE))->Buffer
                 );
@@ -379,7 +379,7 @@ INT_PTR CALLBACK NetworkPingWndProc(
                 DestroyWindow(context->PingGraphHandle);
 
             if (context->FontHandle)
-                DeleteObject(context->FontHandle);
+                DeleteFont(context->FontHandle);
 
             PhDeleteWorkQueue(&context->PingWorkQueue);
             PhDeleteGraphState(&context->PingGraphState);
@@ -450,7 +450,7 @@ INT_PTR CALLBACK NetworkPingWndProc(
                                 PhFormatString(L"%lu ms", context->CurrentPingMs)
                                 );
 
-                            SelectObject(hdc, PhApplicationFont);
+                            SelectFont(hdc, PhApplicationFont);
                             PhSetGraphText(hdc, drawInfo, &context->PingGraphState.Text->sr,
                                 &NormalGraphTextMargin, &NormalGraphTextPadding, PH_ALIGN_TOP | PH_ALIGN_LEFT);
                         }

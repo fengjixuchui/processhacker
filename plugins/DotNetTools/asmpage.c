@@ -480,7 +480,7 @@ VOID DotNetAsmShowContextMenu(
     PhInsertEMenuItem(menu, PhCreateEMenuItem(0, ID_CLR_COPY, L"&Copy", NULL, NULL), ULONG_MAX);
     PhInsertCopyCellEMenuItem(menu, ID_CLR_COPY, Context->TreeNewHandle, ContextMenuEvent->Column);
 
-    if (PhIsNullOrEmptyString(node->PathText) || !RtlDoesFileExists_U(node->PathText->Buffer))
+    if (PhIsNullOrEmptyString(node->PathText) || !PhDoesFileExistsWin32(PhGetString(node->PathText)))
     {
         PhSetFlagsEMenuItem(menu, ID_CLR_INSPECT, PH_EMENU_DISABLED, PH_EMENU_DISABLED);
         PhSetFlagsEMenuItem(menu, ID_CLR_OPENFILELOCATION, PH_EMENU_DISABLED, PH_EMENU_DISABLED);
@@ -507,7 +507,7 @@ VOID DotNetAsmShowContextMenu(
             {
             case ID_CLR_INSPECT:
                 {
-                    if (!PhIsNullOrEmptyString(node->PathText) && RtlDoesFileExists_U(node->PathText->Buffer))
+                    if (!PhIsNullOrEmptyString(node->PathText) && PhDoesFileExistsWin32(PhGetString(node->PathText)))
                     {
                         PhShellExecuteUserString(
                             Context->WindowHandle,
@@ -521,7 +521,7 @@ VOID DotNetAsmShowContextMenu(
                 break;
             case ID_CLR_OPENFILELOCATION:
                 {
-                    if (!PhIsNullOrEmptyString(node->PathText) && RtlDoesFileExists_U(node->PathText->Buffer))
+                    if (!PhIsNullOrEmptyString(node->PathText) && PhDoesFileExistsWin32(PhGetString(node->PathText)))
                     {
                         PhShellExploreFile(Context->WindowHandle, node->PathText->Buffer);
                     }
@@ -859,7 +859,7 @@ static VOID NTAPI DotNetEventCallback(
                 node->Type = DNA_TYPE_CLR;
                 node->u.Clr.ClrInstanceID = data->ClrInstanceID;
                 node->u.Clr.StartupFlags = data->StartupFlags;
-                node->u.Clr.DisplayName = PhFormatString(L"CLR v%u.%u.%u.%u", data->VMMajorVersion, data->VMMinorVersion, data->VMBuildNumber, data->VMQfeNumber);
+                node->u.Clr.DisplayName = PhFormatString(L"CLR v%hu.%hu.%hu.%hu", data->VMMajorVersion, data->VMMinorVersion, data->VMBuildNumber, data->VMQfeNumber);
                 node->StructureText = node->u.Clr.DisplayName->sr;
                 node->IdText = PhFormatUInt64(data->ClrInstanceID, FALSE);
 
@@ -1665,12 +1665,16 @@ INT_PTR CALLBACK DotNetAsmPageDlgProc(
             }
             else
             {
+                PPH_STRING errorMessage = PhGetWin32Message(result);
 
-                PhMoveReference(&context->TreeErrorMessage,
-                    PhConcatStrings2(L"Unable to start the event tracing session: ", PhGetStringOrDefault(PhGetWin32Message(result), L"Unknown error"))
-                    );
+                PhMoveReference(&context->TreeErrorMessage, PhConcatStrings2(
+                    L"Unable to start the event tracing session: ",
+                    PhGetStringOrDefault(errorMessage, L"Unknown error")
+                    ));
                 TreeNew_SetEmptyText(context->TreeNewHandle, &context->TreeErrorMessage->sr, 0);
                 TreeNew_NodesStructured(context->TreeNewHandle);
+
+                PhClearReference(&errorMessage);
             }
 
             DestroyDotNetTraceQuery(queryContext);

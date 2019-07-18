@@ -3,7 +3,7 @@
  *   Main window: Processes tab
  *
  * Copyright (C) 2009-2016 wj32
- * Copyright (C) 2017-2018 dmex
+ * Copyright (C) 2017-2019 dmex
  *
  * This file is part of Process Hacker.
  *
@@ -197,7 +197,7 @@ BOOLEAN PhMwpProcessesPageCallback(
         {
             HFONT font = (HFONT)Parameter1;
 
-            SendMessage(PhMwpProcessTreeNewHandle, WM_SETFONT, (WPARAM)font, TRUE);
+            SetWindowFont(PhMwpProcessTreeNewHandle, font, TRUE);
         }
         break;
     case MainTabPageUpdateAutomaticallyChanged:
@@ -537,8 +537,8 @@ VOID PhMwpInitializeProcessMenu(
         // If the user selected a fake process, disable all but a few menu items.
         if (
             PH_IS_FAKE_PROCESS_ID(Processes[0]->ProcessId) || 
-            Processes[0]->ProcessId == SYSTEM_IDLE_PROCESS_ID ||
-            Processes[0]->ProcessId == SYSTEM_PROCESS_ID // TODO: Some menu entires could be enabled for the system process?
+            Processes[0]->ProcessId == SYSTEM_IDLE_PROCESS_ID
+            //Processes[0]->ProcessId == SYSTEM_PROCESS_ID // (dmex)
             )
         {
             PhSetFlagsAllEMenuItems(Menu, PH_EMENU_DISABLED, PH_EMENU_DISABLED);
@@ -546,7 +546,7 @@ VOID PhMwpInitializeProcessMenu(
             PhEnableEMenuItem(Menu, ID_PROCESS_SEARCHONLINE, TRUE);
         }
 
-        if (PhIsNullOrEmptyString(Processes[0]->FileName) || !RtlDoesFileExists_U(PhGetString(Processes[0]->FileName)))
+        if (PhIsNullOrEmptyString(Processes[0]->FileName) || !PhDoesFileExistsWin32(PhGetString(Processes[0]->FileName)))
         {
             PhEnableEMenuItem(Menu, ID_PROCESS_OPENFILELOCATION, FALSE);  
         }

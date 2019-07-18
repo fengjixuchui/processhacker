@@ -314,7 +314,7 @@ NTSTATUS PhpUpdateMemoryRegionTypes(
 
         if (NT_SUCCESS(PhGetProcessBasicInformation(ProcessHandle, &basicInfo)) && basicInfo.PebBaseAddress != 0)
         {
-            // HACK: Windows 10 RS2 and above 'added TEB/PEB sub-VAD segments' and we need to tag individual sections.
+            // HACK: Windows 10 RS2 and above 'added TEB/PEB sub-VAD segments' and we need to tag individual sections. (dmex)
             PhpSetMemoryRegionType(List, basicInfo.PebBaseAddress, WindowsVersion < WINDOWS_10_RS2 ? TRUE : FALSE, PebRegion);
 
             if (NT_SUCCESS(NtReadVirtualMemory(ProcessHandle,
@@ -469,12 +469,11 @@ NTSTATUS PhpUpdateMemoryRegionTypes(
             }
         }
 
-        if (memoryItem->State & MEM_COMMIT)
+        if (memoryItem->State & MEM_COMMIT && memoryItem->Valid && !memoryItem->Bad)
         {
             UCHAR buffer[HEAP_SEGMENT_MAX_SIZE];
 
-            if (NT_SUCCESS(NtReadVirtualMemory(ProcessHandle, memoryItem->BaseAddress,
-                buffer, sizeof(buffer), NULL)))
+            if (NT_SUCCESS(NtReadVirtualMemory(ProcessHandle, memoryItem->BaseAddress, buffer, sizeof(buffer), NULL)))
             {
                 PVOID candidateHeap = NULL;
                 ULONG candidateHeap32 = 0;
@@ -520,9 +519,12 @@ NTSTATUS PhpUpdateMemoryRegionTypes(
     PS_SYSTEM_DLL_INIT_BLOCK ldrInitBlock = { 0 };
     PVOID ldrInitBlockBaseAddress = NULL;
     PPH_MEMORY_ITEM cfgBitmapMemoryItem;
+    PH_STRINGREF systemRootString;
     PPH_STRING ntdllFileName;
-    
-    ntdllFileName = PhConcatStrings2(USER_SHARED_DATA->NtSystemRoot, L"\\System32\\ntdll.dll");
+
+    PhGetSystemRoot(&systemRootString);
+    ntdllFileName = PhConcatStringRefZ(&systemRootString, L"\\System32\\ntdll.dll");
+
     status = PhGetProcedureAddressRemote(
         ProcessHandle,
         ntdllFileName->Buffer,
@@ -758,6 +760,7 @@ NTSTATUS PhQueryMemoryItemList(
         )))
     {
         PPH_MEMORY_ITEM memoryItem;
+        MEMORY_WORKING_SET_EX_INFORMATION info;
 
         if (basicInfo.State & MEM_FREE)
         {
@@ -781,6 +784,24 @@ NTSTATUS PhQueryMemoryItemList(
 
             if (basicInfo.Type & MEM_PRIVATE)
                 memoryItem->PrivateSize = memoryItem->RegionSize;
+        }
+
+        // Query the region attributes (dmex)
+        info.VirtualAddress = baseAddress;
+
+        if (NT_SUCCESS(NtQueryVirtualMemory(
+            processHandle,
+            NULL,
+            MemoryWorkingSetExInformation,
+            &info,
+            sizeof(MEMORY_WORKING_SET_EX_INFORMATION),
+            NULL
+            )))
+        {
+            PMEMORY_WORKING_SET_EX_BLOCK block = &info.u1.VirtualAttributes;
+
+            memoryItem->Valid = !!block->Valid;
+            memoryItem->Bad = !!block->Bad;
         }
 
         PhAddElementAvlTree(&List->Set, &memoryItem->Links);

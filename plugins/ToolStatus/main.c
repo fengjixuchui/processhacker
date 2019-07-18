@@ -107,7 +107,7 @@ VOID NTAPI ProcessesUpdatedCallback(
 
     PhPluginGetSystemStatistics(&SystemStatistics);
 
-    if (UpdateGraphs)
+    if (ToolStatusConfig.ToolBarEnabled && ToolBarHandle && UpdateGraphs)
         ToolbarUpdateGraphs();
 
     if (ToolStatusConfig.StatusBarEnabled)
@@ -199,7 +199,7 @@ HWND GetCurrentTreeNewHandle(
 }
 
 VOID ShowCustomizeMenu(
-    VOID
+    _In_ HWND WindowHandle
     )
 {
     POINT cursorPos;
@@ -234,7 +234,7 @@ VOID ShowCustomizeMenu(
 
     selectedItem = PhShowEMenu(
         menu,
-        PhMainWndHandle,
+        WindowHandle,
         PH_EMENU_SHOW_LEFTRIGHT,
         PH_ALIGN_LEFT | PH_ALIGN_TOP,
         cursorPos.x,
@@ -253,12 +253,12 @@ VOID ShowCustomizeMenu(
 
                 if (ToolStatusConfig.AutoHideMenu)
                 {
-                    SetMenu(PhMainWndHandle, NULL);
+                    SetMenu(WindowHandle, NULL);
                 }
                 else
                 {
-                    SetMenu(PhMainWndHandle, MainMenu);
-                    DrawMenuBar(PhMainWndHandle);
+                    SetMenu(WindowHandle, MainMenu);
+                    DrawMenuBar(WindowHandle);
                 }
             }
             break;
@@ -275,7 +275,7 @@ VOID ShowCustomizeMenu(
                 {
                     // Adding the Searchbox makes it focused,
                     // reset the focus back to the main window.
-                    SetFocus(PhMainWndHandle);
+                    SetFocus(WindowHandle);
                 }
             }
             break;
@@ -569,38 +569,11 @@ VOID DrawWindowBorderForTargeting(
         Rectangle(hdc, 0, 0, rect.right - rect.left, rect.bottom - rect.top);
 
         // Cleanup.
-        DeleteObject(pen);
+        DeletePen(pen);
 
         RestoreDC(hdc, oldDc);
         ReleaseDC(hWnd, hdc);
     }
-}
-
-HFONT ToolStatusGetTreeWindowFont(
-    VOID
-    )
-{
-    PPH_STRING fontHexString;
-    LOGFONT font;
-
-    fontHexString = PhaGetStringSetting(L"Font");
-
-    if (
-        fontHexString->Length / sizeof(WCHAR) / 2 == sizeof(LOGFONT) &&
-        PhHexStringToBuffer(&fontHexString->sr, (PUCHAR)&font)
-        )
-    {
-        HFONT newFont;
-
-        newFont = CreateFontIndirect(&font);
-
-        if (newFont)
-        {
-            return newFont;
-        }
-    }
-
-    return NULL;
 }
 
 LRESULT CALLBACK MainWndSubclassProc(
@@ -748,7 +721,7 @@ LRESULT CALLBACK MainWndSubclassProc(
                 case RBN_HEIGHTCHANGE:
                     {
                         // Invoke the LayoutPaddingCallback.
-                        SendMessage(PhMainWndHandle, WM_SIZE, 0, 0);
+                        SendMessage(hWnd, WM_SIZE, 0, 0);
                     }
                     break;
                 case RBN_CHEVRONPUSHED:
@@ -873,7 +846,7 @@ LRESULT CALLBACK MainWndSubclassProc(
 
                         if (selectedItem && selectedItem->Id != ULONG_MAX)
                         {
-                            SendMessage(PhMainWndHandle, WM_COMMAND, MAKEWPARAM(selectedItem->Id, BN_CLICKED), 0);
+                            SendMessage(hWnd, WM_COMMAND, MAKEWPARAM(selectedItem->Id, BN_CLICKED), 0);
                         }
 
                         PhDestroyEMenu(menu);
@@ -900,8 +873,6 @@ LRESULT CALLBACK MainWndSubclassProc(
 
                         if (toolbarDisplayInfo->dwMask & TBNF_IMAGE)
                         {
-                            BOOLEAN found = FALSE;
-
                             // Try to find the cached bitmap index.
                             // NOTE: The TBNF_DI_SETITEM flag below will cache the index so we only get called once.
                             //       However, when adding buttons from the customize dialog we get called a second time,
@@ -910,20 +881,15 @@ LRESULT CALLBACK MainWndSubclassProc(
                             {
                                 if (ToolbarButtons[i].idCommand == toolbarDisplayInfo->idCommand)
                                 {
-                                    if (ToolbarButtons[i].iBitmap != I_IMAGECALLBACK)
-                                    {
-                                        found = TRUE;
-
-                                        // Cache the bitmap index.
-                                        toolbarDisplayInfo->dwMask |= TBNF_DI_SETITEM;
-                                        // Set the bitmap index.
-                                        toolbarDisplayInfo->iImage = ToolbarButtons[i].iBitmap;
-                                    }
+                                    // Cache the bitmap index.
+                                    toolbarDisplayInfo->dwMask |= TBNF_DI_SETITEM;
+                                    // Set the bitmap index.
+                                    toolbarDisplayInfo->iImage = ToolbarButtons[i].iBitmap;
                                     break;
                                 }
                             }
 
-                            if (!found)
+                            if (toolbarDisplayInfo->iImage == I_IMAGECALLBACK)
                             {
                                 // We didn't find a cached bitmap index...
                                 // Load the button bitmap and cache the index.
@@ -933,18 +899,20 @@ LRESULT CALLBACK MainWndSubclassProc(
                                     {
                                         HBITMAP buttonImage;
 
-                                        buttonImage = ToolbarGetImage(toolbarDisplayInfo->idCommand);
+                                        if (buttonImage = ToolbarGetImage(toolbarDisplayInfo->idCommand))
+                                        {
+                                            // Cache the bitmap index.
+                                            toolbarDisplayInfo->dwMask |= TBNF_DI_SETITEM;
 
-                                        // Cache the bitmap index.
-                                        toolbarDisplayInfo->dwMask |= TBNF_DI_SETITEM;
-                                        // Add the image, cache the value in the ToolbarButtons array, set the bitmap index.
-                                        toolbarDisplayInfo->iImage = ToolbarButtons[i].iBitmap = ImageList_Add(
-                                            ToolBarImageList,
-                                            buttonImage,
-                                            NULL
-                                            );
+                                            // Add the image, cache the value in the ToolbarButtons array, set the bitmap index.
+                                            toolbarDisplayInfo->iImage = ToolbarButtons[i].iBitmap = ImageList_Add(
+                                                ToolBarImageList,
+                                                buttonImage,
+                                                NULL
+                                                );
 
-                                        DeleteObject(buttonImage);
+                                            DeleteBitmap(buttonImage);
+                                        }
                                         break;
                                     }
                                 }
@@ -996,7 +964,7 @@ LRESULT CALLBACK MainWndSubclassProc(
 
                         if (selectedItem && selectedItem->Id != ULONG_MAX)
                         {
-                            SendMessage(PhMainWndHandle, WM_COMMAND, MAKEWPARAM(selectedItem->Id, BN_CLICKED), 0);
+                            SendMessage(hWnd, WM_COMMAND, MAKEWPARAM(selectedItem->Id, BN_CLICKED), 0);
                         }
 
                         PhDestroyEMenu(menu);
@@ -1033,7 +1001,7 @@ LRESULT CALLBACK MainWndSubclassProc(
                     break;
                 case NM_RCLICK:
                     {
-                        ShowCustomizeMenu();
+                        ShowCustomizeMenu(hWnd);
                     }
                     break;
                 case NM_CUSTOMDRAW:
@@ -1057,7 +1025,11 @@ LRESULT CALLBACK MainWndSubclassProc(
             }
             else
             {
-                if (ToolbarUpdateGraphsInfo(hdr))
+                if (
+                    ToolStatusConfig.ToolBarEnabled &&
+                    ToolBarHandle &&
+                    ToolbarUpdateGraphsInfo(hWnd, hdr)
+                    )
                 {
                     goto DefaultWndProc;
                 }
@@ -1120,7 +1092,7 @@ LRESULT CALLBACK MainWndSubclassProc(
                 SetCursor(LoadCursor(NULL, IDC_ARROW));
 
                 // Bring the window back to the top, and preserve the Always on Top setting.
-                SetWindowPos(PhMainWndHandle, PhGetIntegerSetting(L"MainWindowAlwaysOnTop") ? HWND_TOPMOST : HWND_TOP,
+                SetWindowPos(hWnd, PhGetIntegerSetting(L"MainWindowAlwaysOnTop") ? HWND_TOPMOST : HWND_TOP,
                     0, 0, 0, 0, SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE);
 
                 TargetingWindow = FALSE;
@@ -1233,7 +1205,7 @@ LRESULT CALLBACK MainWndSubclassProc(
                     }
                 }
 
-                SetWindowPos(PhMainWndHandle, PhGetIntegerSetting(L"MainWindowAlwaysOnTop") ? HWND_TOPMOST : HWND_TOP,
+                SetWindowPos(hWnd, PhGetIntegerSetting(L"MainWindowAlwaysOnTop") ? HWND_TOPMOST : HWND_TOP,
                     0, 0, 0, 0, SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE);
 
                 TargetingCompleted = TRUE;
@@ -1260,14 +1232,14 @@ LRESULT CALLBACK MainWndSubclassProc(
                 if (!ToolStatusConfig.AutoHideMenu)
                     break;
 
-                if (GetMenu(PhMainWndHandle))
+                if (GetMenu(hWnd))
                 {
-                    SetMenu(PhMainWndHandle, NULL);
+                    SetMenu(hWnd, NULL);
                 }
                 else
                 {
-                    SetMenu(PhMainWndHandle, MainMenu);
-                    DrawMenuBar(PhMainWndHandle);
+                    SetMenu(hWnd, MainMenu);
+                    DrawMenuBar(hWnd);
                 }
             }
             else if ((wParam & 0xFFF0) == SC_MINIMIZE)
@@ -1288,30 +1260,31 @@ LRESULT CALLBACK MainWndSubclassProc(
             if (!ToolStatusConfig.AutoHideMenu)
                 break;
 
-            if (GetMenu(PhMainWndHandle))
+            if (GetMenu(hWnd))
             {
-                SetMenu(PhMainWndHandle, NULL);
+                SetMenu(hWnd, NULL);
             }
         }
         break;
-    case PHAPP_WM_PLUGIN_UPDATE_FONT:
+    case WM_PH_UPDATE_FONT:
         {
             HFONT newFont;
 
             // Let Process Hacker perform the default processing.
             CallWindowProc(MainWindowHookProc, hWnd, uMsg, wParam, lParam);
 
-            if (newFont = ToolStatusGetTreeWindowFont())
+            if (newFont = (HFONT)SendMessage(hWnd, WM_PH_GET_FONT, 0, 0))
             {
-                if (ToolStatusWindowFont)
-                    DeleteObject(ToolStatusWindowFont);
+                if (ToolStatusWindowFont) DeleteFont(ToolStatusWindowFont);
                 ToolStatusWindowFont = newFont;
 
-                SendMessage(ToolBarHandle, WM_SETFONT, (WPARAM)ToolStatusWindowFont, TRUE);
-                SendMessage(StatusBarHandle, WM_SETFONT, (WPARAM)ToolStatusWindowFont, TRUE);
+                SetWindowFont(ToolBarHandle, ToolStatusWindowFont, TRUE);
+                SetWindowFont(StatusBarHandle, ToolStatusWindowFont, TRUE);
 
                 ToolbarLoadSettings();
             }
+
+            goto DefaultWndProc;
         }
         break;
     }

@@ -1,8 +1,6 @@
 #ifndef PHAPP_H
 #define PHAPP_H
 
-#define PHNT_VERSION PHNT_WIN7
-
 #if !defined(_PHAPP_)
 #define PHAPPAPI __declspec(dllimport)
 #else
@@ -559,6 +557,15 @@ VOID PhShowRunAsDialog(
     _In_opt_ HANDLE ProcessId
     );
 
+// begin_phapppub
+PHLIBAPI
+BOOLEAN
+NTAPI
+PhShowRunFileDialog(
+    _In_ HWND ParentWindowHandle
+    );
+// end_phapppub
+
 NTSTATUS PhExecuteRunAsCommand(
     _In_ PPH_RUNAS_SERVICE_PARAMETERS Parameters
     );
@@ -688,7 +695,7 @@ PhCreateCommonFont(
         return NULL;
 
     if (hwnd)
-        SendMessage(hwnd, WM_SETFONT, (WPARAM)fontHandle, TRUE);
+        SetWindowFont(hwnd, fontHandle, TRUE);
 
     return fontHandle;
 }

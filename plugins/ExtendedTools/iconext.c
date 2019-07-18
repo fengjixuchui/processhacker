@@ -310,7 +310,7 @@ VOID EtpGpuIconUpdateCallback(
 
     Icon->Pointers->BeginBitmap(&drawInfo.Width, &drawInfo.Height, &bitmap, &bits, &hdc, &oldBitmap);
     maxDataCount = drawInfo.Width / 2 + 1;
-    lineData1 = _alloca(maxDataCount * sizeof(FLOAT));
+    lineData1 = _malloca(maxDataCount * sizeof(FLOAT));
 
     lineDataCount = min(maxDataCount, EtGpuNodeHistory.Count);
     PhCopyCircularBuffer_FLOAT(&EtGpuNodeHistory, lineData1, lineDataCount);
@@ -323,7 +323,7 @@ VOID EtpGpuIconUpdateCallback(
     if (bits)
         PhDrawGraphDirect(hdc, bits, &drawInfo);
 
-    SelectObject(hdc, oldBitmap);
+    SelectBitmap(hdc, oldBitmap);
     *NewIconOrBitmap = bitmap;
     *Flags = PH_NF_UPDATE_IS_BITMAP;
 
@@ -354,6 +354,8 @@ VOID EtpGpuIconUpdateCallback(
 
     *NewText = PhFormat(format, maxGpuProcessItem ? 8 : 3, 128);
     if (maxGpuProcessItem) PhDereferenceObject(maxGpuProcessItem);
+
+    _freea(lineData1);
 }
 
 BOOLEAN EtpGpuIconMessageCallback(
@@ -419,8 +421,8 @@ VOID EtpDiskIconUpdateCallback(
 
     Icon->Pointers->BeginBitmap(&drawInfo.Width, &drawInfo.Height, &bitmap, &bits, &hdc, &oldBitmap);
     maxDataCount = drawInfo.Width / 2 + 1;
-    lineData1 = _alloca(maxDataCount * sizeof(FLOAT));
-    lineData2 = _alloca(maxDataCount * sizeof(FLOAT));
+    lineData1 = _malloca(maxDataCount * sizeof(FLOAT));
+    lineData2 = _malloca(maxDataCount * sizeof(FLOAT));
 
     lineDataCount = min(maxDataCount, EtDiskReadHistory.Count);
     max = 1024 * 1024; // minimum scaling of 1 MB.
@@ -448,7 +450,7 @@ VOID EtpDiskIconUpdateCallback(
     if (bits)
         PhDrawGraphDirect(hdc, bits, &drawInfo);
 
-    SelectObject(hdc, oldBitmap);
+    SelectBitmap(hdc, oldBitmap);
     *NewIconOrBitmap = bitmap;
     *Flags = PH_NF_UPDATE_IS_BITMAP;
 
@@ -477,6 +479,9 @@ VOID EtpDiskIconUpdateCallback(
 
     *NewText = PhFormat(format, maxDiskProcessItem ? 6 : 4, 128);
     if (maxDiskProcessItem) PhDereferenceObject(maxDiskProcessItem);
+
+    _freea(lineData2);
+    _freea(lineData1);
 }
 
 BOOLEAN EtpDiskIconMessageCallback(
@@ -542,8 +547,8 @@ VOID EtpNetworkIconUpdateCallback(
 
     Icon->Pointers->BeginBitmap(&drawInfo.Width, &drawInfo.Height, &bitmap, &bits, &hdc, &oldBitmap);
     maxDataCount = drawInfo.Width / 2 + 1;
-    lineData1 = _alloca(maxDataCount * sizeof(FLOAT));
-    lineData2 = _alloca(maxDataCount * sizeof(FLOAT));
+    lineData1 = _malloca(maxDataCount * sizeof(FLOAT));
+    lineData2 = _malloca(maxDataCount * sizeof(FLOAT));
 
     lineDataCount = min(maxDataCount, EtNetworkReceiveHistory.Count);
     max = 1024 * 1024; // minimum scaling of 1 MB.
@@ -571,7 +576,7 @@ VOID EtpNetworkIconUpdateCallback(
     if (bits)
         PhDrawGraphDirect(hdc, bits, &drawInfo);
 
-    SelectObject(hdc, oldBitmap);
+    SelectBitmap(hdc, oldBitmap);
     *NewIconOrBitmap = bitmap;
     *Flags = PH_NF_UPDATE_IS_BITMAP;
 
@@ -600,6 +605,9 @@ VOID EtpNetworkIconUpdateCallback(
 
     *NewText = PhFormat(format, maxNetworkProcessItem ? 6 : 4, 128);
     if (maxNetworkProcessItem) PhDereferenceObject(maxNetworkProcessItem);
+
+    _freea(lineData2);
+    _freea(lineData1);
 }
 
 BOOLEAN EtpNetworkIconMessageCallback(
@@ -668,7 +676,7 @@ VOID EtpGpuTextIconUpdateCallback(
     PhDrawTrayIconText(hdc, bits, &drawInfo, &text->sr);
     PhDereferenceObject(text);
 
-    SelectObject(hdc, oldBitmap);
+    SelectBitmap(hdc, oldBitmap);
     *NewIconOrBitmap = bitmap;
     *Flags = PH_NF_UPDATE_IS_BITMAP;
 
@@ -748,7 +756,7 @@ VOID EtpDiskTextIconUpdateCallback(
     PhDrawTrayIconText(hdc, bits, &drawInfo, &text->sr);
     PhDereferenceObject(text);
 
-    SelectObject(hdc, oldBitmap);
+    SelectBitmap(hdc, oldBitmap);
     *NewIconOrBitmap = bitmap;
     *Flags = PH_NF_UPDATE_IS_BITMAP;
 
@@ -826,7 +834,7 @@ VOID EtpNetworkTextIconUpdateCallback(
     PhDrawTrayIconText(hdc, bits, &drawInfo, &text->sr);
     PhDereferenceObject(text);
 
-    SelectObject(hdc, oldBitmap);
+    SelectBitmap(hdc, oldBitmap);
     *NewIconOrBitmap = bitmap;
     *Flags = PH_NF_UPDATE_IS_BITMAP;
 

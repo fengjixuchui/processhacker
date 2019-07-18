@@ -2824,18 +2824,36 @@ NTSTATUS PhDeleteFile(
     _In_ HANDLE FileHandle
     )
 {
-    FILE_DISPOSITION_INFORMATION dispositionInfo;
-    IO_STATUS_BLOCK isb;
+    if (WindowsVersion >= WINDOWS_10_RS5)
+    {
+        FILE_DISPOSITION_INFO_EX dispositionInfoEx;
+        IO_STATUS_BLOCK isb;
 
-    dispositionInfo.DeleteFile = TRUE;
+        dispositionInfoEx.Flags = FILE_DISPOSITION_FLAG_DELETE | FILE_DISPOSITION_FLAG_IGNORE_READONLY_ATTRIBUTE;
 
-    return NtSetInformationFile(
-        FileHandle,
-        &isb,
-        &dispositionInfo,
-        sizeof(FILE_DISPOSITION_INFORMATION),
-        FileDispositionInformation
-        );
+        return NtSetInformationFile(
+            FileHandle,
+            &isb,
+            &dispositionInfoEx,
+            sizeof(FILE_DISPOSITION_INFO_EX),
+            FileDispositionInformationEx
+            );
+    }
+    else
+    {
+        FILE_DISPOSITION_INFORMATION dispositionInfo;
+        IO_STATUS_BLOCK isb;
+
+        dispositionInfo.DeleteFile = TRUE;
+
+        return NtSetInformationFile(
+            FileHandle,
+            &isb,
+            &dispositionInfo,
+            sizeof(FILE_DISPOSITION_INFORMATION),
+            FileDispositionInformation
+            );
+    }
 }
 
 NTSTATUS PhGetFileHandleName(
@@ -5327,7 +5345,7 @@ NTSTATUS PhGetProcessIsDotNetEx(
         // * Better performance.
         // * No need for admin rights to get .NET status of processes owned by other users.
 
-        PhInitFormatIU(&format[1], (ULONG_PTR)ProcessId);
+        PhInitFormatU(&format[1], HandleToUlong(ProcessId));
 
         // Version 4 section object
 
@@ -7528,6 +7546,27 @@ NTSTATUS PhQueryAttributesFileWin32(
     return status;
 }
 
+BOOLEAN PhDoesFileExistsWin32(
+    _In_ PWSTR FileName
+    )
+{
+    NTSTATUS status;
+    FILE_BASIC_INFORMATION basicInfo;
+
+    status = PhQueryAttributesFileWin32(FileName, &basicInfo);
+
+    if (
+        NT_SUCCESS(status) ||
+        status == STATUS_SHARING_VIOLATION ||
+        status == STATUS_ACCESS_DENIED
+        )
+    {
+        return TRUE;
+    }
+
+    return FALSE;
+}
+
 /**
  * Deletes a file.
  *
@@ -7573,9 +7612,9 @@ NTSTATUS PhCreateDirectory(
     PH_STRINGREF remainingPart;
 
     if (PhIsNullOrEmptyString(DirectoryPath))
-        return STATUS_FAIL_CHECK;
+        return STATUS_INVALID_PARAMETER;
 
-    if (RtlDoesFileExists_U(PhGetString(DirectoryPath)))
+    if (PhDoesFileExistsWin32(PhGetString(DirectoryPath)))
         return STATUS_SUCCESS;
 
     remainingPart = PhGetStringRef(DirectoryPath);
@@ -7599,7 +7638,7 @@ NTSTATUS PhCreateDirectory(
                     );
 
                 // Check if the directory already exists.
-                if (!RtlDoesFileExists_U(PhGetString(tempPathString)))
+                if (!PhDoesFileExistsWin32(PhGetString(tempPathString)))
                 {
                     HANDLE directoryHandle;
 
@@ -7626,7 +7665,7 @@ NTSTATUS PhCreateDirectory(
     if (directoryPath)
         PhDereferenceObject(directoryPath);
 
-    if (RtlDoesFileExists_U(PhGetString(DirectoryPath)))
+    if (PhDoesFileExistsWin32(PhGetString(DirectoryPath)))
         return STATUS_SUCCESS;
     else
         return STATUS_NOT_FOUND;
@@ -7678,7 +7717,7 @@ static BOOLEAN PhpDeleteDirectoryCallback(
     }
     else
     {
-        if (Information->FileAttributes & FILE_ATTRIBUTE_READONLY)
+        if (WindowsVersion < WINDOWS_10_RS5 && (Information->FileAttributes & FILE_ATTRIBUTE_READONLY))
         {
             HANDLE fileHandle;
 
@@ -7758,7 +7797,7 @@ NTSTATUS PhDeleteDirectory(
         NtClose(directoryHandle);
     }
 
-    if (!RtlDoesFileExists_U(PhGetString(DirectoryPath)))
+    if (!PhDoesFileExistsWin32(PhGetString(DirectoryPath)))
         return STATUS_SUCCESS;
 
     return status;

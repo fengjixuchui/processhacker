@@ -180,6 +180,20 @@ BOOLEAN EtpDiskPageCallback(
             // Nothing
         }
         return TRUE;
+    case MainTabPageSelected:
+        {
+            BOOLEAN selected = (BOOLEAN)Parameter1;
+
+            if (selected)
+            {
+                EtDiskEnabled = TRUE;
+            }
+            else
+            {
+                EtDiskEnabled = FALSE;
+            }
+        }
+        break;
     case MainTabPageExportContent:
         {
             PPH_MAIN_TAB_PAGE_EXPORT_CONTENT exportContent = Parameter1;
@@ -195,7 +209,7 @@ BOOLEAN EtpDiskPageCallback(
             HFONT font = (HFONT)Parameter1;
 
             if (DiskTreeNewHandle)
-                SendMessage(DiskTreeNewHandle, WM_SETFONT, (WPARAM)Parameter1, TRUE);
+                SetWindowFont(DiskTreeNewHandle, font, TRUE);
         }
         break;
     }

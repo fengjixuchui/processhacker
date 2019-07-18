@@ -701,8 +701,8 @@ static VOID PhpNeedGraphContext(
     {
         // The original bitmap must be selected back into the context, otherwise
         // the bitmap can't be deleted.
-        SelectObject(GraphContext, GraphBitmap);
-        DeleteObject(GraphBitmap);
+        SelectBitmap(GraphContext, GraphBitmap);
+        DeleteBitmap(GraphBitmap);
         DeleteDC(GraphContext);
 
         GraphContext = NULL;
@@ -719,7 +719,7 @@ static VOID PhpNeedGraphContext(
     header.biPlanes = 1;
     header.biBitCount = 32;
     GraphBitmap = CreateDIBSection(hdc, (BITMAPINFO *)&header, DIB_RGB_COLORS, &GraphBits, NULL, 0);
-    GraphOldBitmap = SelectObject(GraphContext, GraphBitmap);
+    GraphOldBitmap = SelectBitmap(GraphContext, GraphBitmap);
 }
 
 static BOOLEAN PhpFormatInt32GroupDigits(
@@ -912,11 +912,7 @@ static VOID PhpUpdateProcessNodeWindow(
     {
         PhClearReference(&ProcessNode->WindowText);
 
-        if (ProcessNode->ProcessItem->IsSubsystemProcess)
-        {
-            NOTHING;
-        }
-        else
+        if (ProcessNode->ProcessItem->QueryHandle && !ProcessNode->ProcessItem->IsSubsystemProcess)
         {
             ProcessNode->WindowHandle = PhGetProcessMainWindow(
                 ProcessNode->ProcessId,
@@ -925,7 +921,12 @@ static VOID PhpUpdateProcessNodeWindow(
 
             if (ProcessNode->WindowHandle)
             {
-                PhGetWindowTextEx(ProcessNode->WindowHandle, PH_GET_WINDOW_TEXT_INTERNAL, &ProcessNode->WindowText);
+                PhGetWindowTextEx(
+                    ProcessNode->WindowHandle,
+                    PH_GET_WINDOW_TEXT_INTERNAL,
+                    &ProcessNode->WindowText
+                    );
+
                 ProcessNode->WindowHung = !!IsHungAppWindow(ProcessNode->WindowHandle);
             }
         }

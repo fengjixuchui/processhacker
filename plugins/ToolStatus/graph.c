@@ -197,7 +197,7 @@ BOOLEAN ToolbarAddGraph(
     _In_ PPH_TOOLBAR_GRAPH Graph
     )
 {
-    if (!Graph->GraphHandle)
+    if (!Graph->GraphHandle && RebarHandle && ToolStatusConfig.ToolBarEnabled)
     {
         UINT rebarHeight = (UINT)SendMessage(RebarHandle, RB_GETROWHEIGHT, 0, 0);
 
@@ -272,11 +272,17 @@ VOID ToolbarUpdateGraphs(
     VOID
     )
 {
+    if (!ToolStatusConfig.ToolBarEnabled)
+        return;
+
     for (ULONG i = 0; i < PhpToolbarGraphList->Count; i++)
     {
         PPH_TOOLBAR_GRAPH graph = PhpToolbarGraphList->Items[i];
 
         if (!(graph->Flags & TOOLSTATUS_GRAPH_ENABLED))
+            continue;
+
+        if (!graph->GraphHandle)
             continue;
 
         graph->GraphState.Valid = FALSE;
@@ -289,6 +295,7 @@ VOID ToolbarUpdateGraphs(
 }
 
 BOOLEAN ToolbarUpdateGraphsInfo(
+    _In_ HWND WindowHandle,
     _In_ LPNMHDR Header
     )
 {
@@ -302,7 +309,7 @@ BOOLEAN ToolbarUpdateGraphsInfo(
 
             if (mouseEvent->Message == WM_RBUTTONUP)
             {
-                ShowCustomizeMenu();
+                ShowCustomizeMenu(WindowHandle);
             }
         }
 

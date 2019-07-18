@@ -50,6 +50,8 @@ static PH_UINT32_DELTA PageFaultsDelta;
 static PH_UINT32_DELTA PageReadsDelta;
 static PH_UINT32_DELTA PagefileWritesDelta;
 static PH_UINT32_DELTA MappedWritesDelta;
+static PH_UINT64_DELTA MappedIoReadDelta;
+static PH_UINT64_DELTA MappedIoWritesDelta;
 static BOOLEAN MmAddressesInitialized;
 static PSIZE_T MmSizeOfPagedPoolInBytes;
 static PSIZE_T MmMaximumNonPagedPoolInBytes;
@@ -231,6 +233,8 @@ VOID PhSipInitializeMemoryDialog(
     PhInitializeDelta(&PageReadsDelta);
     PhInitializeDelta(&PagefileWritesDelta);
     PhInitializeDelta(&MappedWritesDelta);
+    PhInitializeDelta(&MappedIoReadDelta);
+    PhInitializeDelta(&MappedIoWritesDelta);
 
     PhInitializeGraphState(&CommitGraphState);
     PhInitializeGraphState(&PhysicalGraphState);
@@ -264,11 +268,11 @@ VOID PhSipTickMemoryDialog(
     PhUpdateDelta(&PageReadsDelta, PhPerfInformation.PageReadCount);
     PhUpdateDelta(&PagefileWritesDelta, PhPerfInformation.DirtyPagesWriteCount);
     PhUpdateDelta(&MappedWritesDelta, PhPerfInformation.MappedPagesWriteCount);
+    PhUpdateDelta(&MappedIoReadDelta, UInt32x32To64(PhPerfInformation.PageReadCount, PAGE_SIZE));
+    PhUpdateDelta(&MappedIoWritesDelta, PhPerfInformation.MappedPagesWriteCount + PhPerfInformation.DirtyPagesWriteCount + PhPerfInformation.CcLazyWritePages * PAGE_SIZE);
 
-    MemoryTicked++;
-
-    if (MemoryTicked > 2)
-        MemoryTicked = 2;
+    if (MemoryTicked < 2)
+        MemoryTicked++;
 
     PhSipUpdateMemoryGraphs();
     PhSipUpdateMemoryPanel();
@@ -299,8 +303,8 @@ INT_PTR CALLBACK PhSipMemoryDialogProc(
             panelItem = PhAddLayoutItem(&MemoryLayoutManager, GetDlgItem(hwndDlg, IDC_LAYOUT), NULL, PH_ANCHOR_LEFT | PH_ANCHOR_RIGHT | PH_ANCHOR_BOTTOM);
             MemoryGraphMargin = graphItem->Margin;
 
-            SendMessage(GetDlgItem(hwndDlg, IDC_TITLE), WM_SETFONT, (WPARAM)MemorySection->Parameters->LargeFont, FALSE);
-            SendMessage(GetDlgItem(hwndDlg, IDC_TOTALPHYSICAL), WM_SETFONT, (WPARAM)MemorySection->Parameters->MediumFont, FALSE);
+            SetWindowFont(GetDlgItem(hwndDlg, IDC_TITLE), MemorySection->Parameters->LargeFont, FALSE);
+            SetWindowFont(GetDlgItem(hwndDlg, IDC_TOTALPHYSICAL), MemorySection->Parameters->MediumFont, FALSE);
 
             if (!getPhysicallyInstalledSystemMemory)
                 getPhysicallyInstalledSystemMemory = PhGetDllProcedureAddress(L"kernel32.dll", "GetPhysicallyInstalledSystemMemory", 0);
@@ -774,6 +778,18 @@ VOID PhSipUpdateMemoryPanel(
         PhSetDialogItemText(MemoryPanel, IDC_ZPAGINGMAPPEDWRITESDELTA_V, PhaFormatUInt64(MappedWritesDelta.Delta, TRUE)->Buffer);
     else
         PhSetDialogItemText(MemoryPanel, IDC_ZPAGINGMAPPEDWRITESDELTA_V, L"-");
+
+    // Mapped
+
+    if (MemoryTicked > 1)
+        PhSetDialogItemText(MemoryPanel, IDC_ZMAPPEDREADIO, PhaFormatSize(MappedIoReadDelta.Delta, ULONG_MAX)->Buffer);
+    else
+        PhSetDialogItemText(MemoryPanel, IDC_ZMAPPEDREADIO, L"-");
+
+    if (MemoryTicked > 1)
+        PhSetDialogItemText(MemoryPanel, IDC_ZMAPPEDWRITEIO, PhaFormatSize(MappedIoWritesDelta.Delta, ULONG_MAX)->Buffer);
+    else
+        PhSetDialogItemText(MemoryPanel, IDC_ZMAPPEDWRITEIO, L"-");
 
     // Memory lists
 

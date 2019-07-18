@@ -183,14 +183,14 @@ INT PhFindListViewItemByParam(
     );
 
 PHLIBAPI
-LOGICAL PhGetListViewItemImageIndex(
+BOOLEAN PhGetListViewItemImageIndex(
     _In_ HWND ListViewHandle,
     _In_ INT Index,
     _Out_ PINT ImageIndex
     );
 
 PHLIBAPI
-LOGICAL PhGetListViewItemParam(
+BOOLEAN PhGetListViewItemParam(
     _In_ HWND ListViewHandle,
     _In_ INT Index,
     _Out_ PVOID *Param
@@ -489,6 +489,16 @@ VOID
 PhRemoveWindowContext(
     _In_ HWND WindowHandle, 
     _In_ ULONG PropertyHash
+    );
+
+typedef BOOL (CALLBACK* PH_ENUM_CALLBACK)(
+    _In_ HWND WindowHandle,
+    _In_opt_ PVOID Context
+    );
+
+VOID PhEnumWindows(
+    _In_ PH_ENUM_CALLBACK Callback,
+    _In_opt_ PVOID Context
     );
 
 typedef BOOLEAN (CALLBACK *PH_CHILD_ENUM_CALLBACK)(
@@ -881,18 +891,6 @@ VOID
 NTAPI
 PhWindowNotifyTopMostEvent(
     _In_ BOOLEAN TopMost
-    );
-
-PHLIBAPI
-BOOLEAN
-NTAPI
-PhShowRunFileDialog(
-    _In_ HWND WindowHandle,
-    _In_opt_ HICON WindowIcon,
-    _In_opt_ PWSTR WorkingDirectory,
-    _In_opt_ PWSTR WindowTitle,
-    _In_opt_ PWSTR WindowDescription,
-    _In_ ULONG Flags
     );
 
 // theme support (theme.c)

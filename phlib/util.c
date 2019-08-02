@@ -562,9 +562,20 @@ VOID PhShowStatus(
 {
     PPH_STRING statusMessage;
 
-    statusMessage = PhGetStatusMessage(Status, Win32Result);
+    if (statusMessage = PhGetStatusMessage(Status, Win32Result))
+    {
+        if (Message)
+        {
+            PhShowError2(hWnd, Message, L"%s", statusMessage->Buffer);
+        }
+        else
+        {
+            PhShowError(hWnd, L"%s", statusMessage->Buffer);
+        }
 
-    if (!statusMessage)
+        PhDereferenceObject(statusMessage);
+    }
+    else
     {
         if (Message)
         {
@@ -574,20 +585,7 @@ VOID PhShowStatus(
         {
             PhShowError(hWnd, L"Unable to perform the operation.");
         }
-
-        return;
     }
-
-    if (Message)
-    {
-        PhShowError2(hWnd, Message, L"%s", statusMessage->Buffer);
-    }
-    else
-    {
-        PhShowError(hWnd, L"%s", statusMessage->Buffer);
-    }
-
-    PhDereferenceObject(statusMessage);
 }
 
 /**
@@ -1333,7 +1331,7 @@ PPH_STRING PhFormatTimeSpan(
 {
     PPH_STRING string;
 
-    string = PhCreateStringEx(NULL, PH_TIMESPAN_STR_LEN);
+    string = PhCreateStringEx(NULL, PH_TIMESPAN_STR_LEN * sizeof(WCHAR));
     PhPrintTimeSpan(string->Buffer, Ticks, Mode);
     PhTrimToNullTerminatorString(string);
 

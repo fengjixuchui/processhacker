@@ -134,13 +134,36 @@ INT WINAPI wWinMain(
 
         if (PhShowFileDialog(NULL, fileDialog))
         {
-            PvFileName = PhGetFileDialogFileName(fileDialog);
+            if (PvFileName = PhGetFileDialogFileName(fileDialog))
+            {
+#ifndef DEBUG
+                PPH_STRING applicationFileName;
+
+                if (applicationFileName = PhGetApplicationFileName())
+                {
+                    PhMoveReference(&PvFileName, PhConcatStrings(3, L"\"", PvFileName->Buffer, L"\""));
+
+                    if (PhShellExecuteEx(
+                        NULL,
+                        PhGetString(applicationFileName),
+                        PvFileName->Buffer,
+                        SW_SHOWDEFAULT,
+                        0,
+                        ULONG_MAX,
+                        NULL
+                        ))
+                    {
+                        RtlExitUserProcess(STATUS_SUCCESS);
+                    }
+                }
+#endif
+            }
         }
 
         PhFreeFileDialog(fileDialog);
     }
 
-    if (!PvFileName)
+    if (PhIsNullOrEmptyString(PvFileName))
         return 1;
 
     if (PhEndsWithString2(PvFileName, L".lnk", TRUE))

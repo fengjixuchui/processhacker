@@ -1025,6 +1025,11 @@ BOOLEAN PhModalPropertySheet(
         if (result == -1)
             break;
 
+        if (message.message == WM_KEYDOWN /*|| message.message == WM_KEYUP*/) // forward key messages (dmex)
+        {
+            SendMessage(hwnd, message.message, message.wParam, message.lParam);
+        }
+
         if (!PropSheet_IsDialogMessage(hwnd, &message))
         {
             TranslateMessage(&message);
@@ -1504,7 +1509,7 @@ HWND PhGetProcessMainWindowEx(
     else
         PhOpenProcess(&processHandle, PROCESS_QUERY_LIMITED_INFORMATION, ProcessId);
 
-    if (processHandle && WINDOWS_HAS_IMMERSIVE && IsImmersiveProcess)
+    if (processHandle && WindowsVersion >= WINDOWS_8 && IsImmersiveProcess)
         context.IsImmersive = IsImmersiveProcess(processHandle);
 
     PhEnumWindows(PhpGetProcessMainWindowEnumWindowsProc, &context);

@@ -547,6 +547,75 @@ VOID PvpSetPeImageBaseAddress(
     PhDereferenceObject(string);
 }
 
+VOID PvpSetPeImageSize(
+    _In_ HWND WindowHandle
+    )
+{
+    PPH_STRING string;
+    ULONG lastRawDataAddress = 0;
+    ULONG64 lastRawDataOffset = 0;
+    ULONG64 lastRawDataAddressSize = 0;
+
+    // https://reverseengineering.stackexchange.com/questions/2014/how-can-one-extract-the-appended-data-of-a-portable-executable/2015#2015
+
+    for (ULONG i = 0; i < PvMappedImage.NumberOfSections; i++)
+    {
+        if (PvMappedImage.Sections[i].PointerToRawData > lastRawDataAddress)
+        {
+            lastRawDataAddress = PvMappedImage.Sections[i].PointerToRawData;
+            lastRawDataOffset = (ULONG64)PTR_ADD_OFFSET(lastRawDataAddress, PvMappedImage.Sections[i].SizeOfRawData);
+        }
+    }
+
+    if (PvMappedImage.Size != lastRawDataOffset)
+    {
+        BOOLEAN success = FALSE;
+        PIMAGE_DATA_DIRECTORY dataDirectory;
+
+        if (NT_SUCCESS(PhGetMappedImageDataEntry(
+            &PvMappedImage,
+            IMAGE_DIRECTORY_ENTRY_SECURITY,
+            &dataDirectory
+            )))
+        {
+            if (
+                dataDirectory->VirtualAddress &&
+                (lastRawDataOffset + dataDirectory->Size == PvMappedImage.Size) &&
+                (lastRawDataOffset == dataDirectory->VirtualAddress)
+                )
+            {
+                success = TRUE;
+            }
+        }
+
+        if (success)
+        {
+            string = PhFormatString(L"%s (correct)", PhaFormatSize(PvMappedImage.Size, ULONG_MAX)->Buffer);
+        }
+        else
+        {
+            WCHAR pointer[PH_PTR_STR_LEN_1];
+
+            PhPrintPointer(pointer, UlongToPtr(lastRawDataAddress));
+
+            string = PhFormatString(
+                L"%s (incorrect, %s) (%s - %s)",
+                PhaFormatSize(lastRawDataOffset, ULONG_MAX)->Buffer,
+                PhaFormatSize(PvMappedImage.Size, ULONG_MAX)->Buffer,
+                pointer,
+                PhaFormatSize(PvMappedImage.Size - lastRawDataOffset, ULONG_MAX)->Buffer
+                );
+        }
+    }
+    else
+    {
+        string = PhFormatString(L"%s (correct)", PhaFormatSize(PvMappedImage.Size, ULONG_MAX)->Buffer);
+    }
+
+    PhSetDialogItemText(WindowHandle, IDC_IMAGESIZE, string->Buffer);
+    PhDereferenceObject(string);
+}
+
 VOID PvpSetPeImageEntryPoint(
     _In_ HWND WindowHandle
     )
@@ -928,6 +997,7 @@ INT_PTR CALLBACK PvpPeGeneralDlgProc(
             PvpSetPeImageMachineType(hwndDlg);
             PvpSetPeImageTimeStamp(hwndDlg);
             PvpSetPeImageBaseAddress(hwndDlg);
+            PvpSetPeImageSize(hwndDlg);
             PvpSetPeImageEntryPoint(hwndDlg);
             PvpSetPeImageCheckSum(hwndDlg);
             PvpSetPeImageSubsystem(hwndDlg);

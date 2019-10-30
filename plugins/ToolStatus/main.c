@@ -44,6 +44,7 @@ INT SelectedTabIndex = 0;
 ULONG ProcessesUpdatedCount = 0;
 BOOLEAN UpdateAutomatically = TRUE;
 BOOLEAN UpdateGraphs = TRUE;
+BOOLEAN EnableThemeSupport = FALSE;
 TOOLBAR_DISPLAY_STYLE DisplayStyle = TOOLBAR_DISPLAY_STYLE_SELECTIVETEXT;
 SEARCHBOX_DISPLAY_MODE SearchBoxDisplayMode = SEARCHBOX_DISPLAY_MODE_ALWAYSSHOW;
 REBAR_DISPLAY_LOCATION RebarDisplayLocation = REBAR_DISPLAY_LOCATION_TOP;
@@ -399,6 +400,9 @@ VOID NTAPI LayoutPaddingCallback(
     )
 {
     PPH_LAYOUT_PADDING_DATA layoutPadding = Parameter;
+
+    if (!layoutPadding)
+        return;
 
     if (RebarHandle && ToolStatusConfig.ToolBarEnabled)
     {
@@ -858,7 +862,11 @@ LRESULT CALLBACK MainWndSubclassProc(
                     }
                     break;
                 case NM_CUSTOMDRAW:
-                    return CallWindowProc(MainWindowHookProc, hWnd, uMsg, wParam, lParam); // HACK
+                    {
+                        if (EnableThemeSupport)
+                            return PhThemeWindowDrawRebar((LPNMCUSTOMDRAW)lParam);
+                    }
+                    break;
                 }
 
                 goto DefaultWndProc;
@@ -1005,7 +1013,11 @@ LRESULT CALLBACK MainWndSubclassProc(
                     }
                     break;
                 case NM_CUSTOMDRAW:
-                    return CallWindowProc(MainWindowHookProc, hWnd, uMsg, wParam, lParam); // HACK
+                    {
+                        if (EnableThemeSupport)
+                            return PhThemeWindowDrawToolbar((LPNMTBCUSTOMDRAW)lParam);
+                    }
+                    break;
                 }
 
                 goto DefaultWndProc;
@@ -1331,6 +1343,7 @@ VOID NTAPI LoadCallback(
     ToolStatusConfig.Flags = PhGetIntegerSetting(SETTING_NAME_TOOLSTATUS_CONFIG);
     DisplayStyle = (TOOLBAR_DISPLAY_STYLE)PhGetIntegerSetting(SETTING_NAME_TOOLBARDISPLAYSTYLE);
     SearchBoxDisplayMode = (SEARCHBOX_DISPLAY_MODE)PhGetIntegerSetting(SETTING_NAME_SEARCHBOXDISPLAYMODE);
+    EnableThemeSupport = !!PhGetIntegerSetting(L"EnableThemeSupport");
     UpdateGraphs = !PhGetIntegerSetting(L"StartHidden");
 
     ToolbarGraphsInitialize();

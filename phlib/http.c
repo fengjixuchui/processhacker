@@ -22,8 +22,8 @@
 
 #include <ph.h>
 #include <phnet.h>
-
 #include <winhttp.h>
+#include <apiimport.h>
 
 static const PH_FLAG_MAPPING PhpHttpRequestFlagMappings[] =
 {
@@ -734,11 +734,10 @@ HINTERNET PhpCreateDohConnectionHandle(
         {
             if (WindowsVersion < WINDOWS_8_1)
             {
-                // Note: The PROTOCOL_ALL flag enables TLS 1.2 on Win7 and Win2k8. (dmex)
                 WinHttpSetOption(
                     httpSessionHandle,
                     WINHTTP_OPTION_SECURE_PROTOCOLS,
-                    &(ULONG){ WINHTTP_FLAG_SECURE_PROTOCOL_ALL },
+                    &(ULONG){ WINHTTP_FLAG_SECURE_PROTOCOL_TLS1_1 | WINHTTP_FLAG_SECURE_PROTOCOL_TLS1_2 },
                     sizeof(ULONG)
                     );
             }
@@ -747,7 +746,7 @@ HINTERNET PhpCreateDohConnectionHandle(
                 WinHttpSetOption(
                     httpSessionHandle,
                     WINHTTP_OPTION_SECURE_PROTOCOLS,
-                    &(ULONG){ WINHTTP_FLAG_SECURE_PROTOCOL_ALL | WINHTTP_FLAG_SECURE_PROTOCOL_TLS1_1 | WINHTTP_FLAG_SECURE_PROTOCOL_TLS1_2 | WINHTTP_FLAG_SECURE_PROTOCOL_TLS1_3 },
+                    &(ULONG){ WINHTTP_FLAG_SECURE_PROTOCOL_TLS1_1 | WINHTTP_FLAG_SECURE_PROTOCOL_TLS1_2 | WINHTTP_FLAG_SECURE_PROTOCOL_TLS1_3 },
                     sizeof(ULONG)
                     );
 
@@ -772,7 +771,7 @@ HINTERNET PhpCreateDohConnectionHandle(
             WinHttpSetOption(
                 httpSessionHandle,
                 WINHTTP_OPTION_MAX_CONNS_PER_SERVER,
-                &(ULONG){ 1 },
+                &(ULONG){ 1 }, // HACK
                 sizeof(ULONG)
                 );
 
@@ -856,10 +855,13 @@ static BOOLEAN PhpCreateDnsMessageBuffer(
     ULONG dnsBufferLength;
     PDNS_MESSAGE_BUFFER dnsBuffer;
 
+    if (!DnsWriteQuestionToBuffer_W_Import())
+        return FALSE;
+
     dnsBufferLength = PAGE_SIZE;
     dnsBuffer = PhAllocate(dnsBufferLength);
 
-    if (!(status = !!DnsWriteQuestionToBuffer_W(
+    if (!(status = !!DnsWriteQuestionToBuffer_W_Import()(
         dnsBuffer,
         &dnsBufferLength,
         Message,
@@ -871,7 +873,7 @@ static BOOLEAN PhpCreateDnsMessageBuffer(
         PhFree(dnsBuffer);
         dnsBuffer = PhAllocate(dnsBufferLength);
 
-        status = !!DnsWriteQuestionToBuffer_W(
+        status = !!DnsWriteQuestionToBuffer_W_Import()(
             dnsBuffer,
             &dnsBufferLength,
             Message,
@@ -914,6 +916,9 @@ static BOOLEAN PhpParseDnsMessageBuffer(
     PDNS_RECORD dnsRecordList = NULL;
     PDNS_HEADER dnsRecordHeader;
 
+    if (!DnsExtractRecordsFromMessage_W_Import())
+        return FALSE;
+
     if (DnsReplyBufferLength > USHRT_MAX)
         return FALSE;
 
@@ -928,7 +933,7 @@ static BOOLEAN PhpParseDnsMessageBuffer(
     if (dnsRecordHeader->Xid != Xid)
         return FALSE;
 
-    status = DnsExtractRecordsFromMessage_W(
+    status = DnsExtractRecordsFromMessage_W_Import()(
         DnsReplyBuffer,
         (USHORT)DnsReplyBufferLength,
         &dnsRecordList

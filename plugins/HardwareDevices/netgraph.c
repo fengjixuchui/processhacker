@@ -42,8 +42,6 @@ VOID NetAdapterUpdatePanel(
     ULONG64 inOctetsValue = 0;
     ULONG64 outOctetsValue = 0;
     ULONG64 linkSpeedValue = 0;
-    ULONG64 interfaceRcvSpeed = 0;
-    ULONG64 interfaceXmitSpeed = 0;
     NDIS_MEDIA_CONNECT_STATE mediaState = MediaConnectStateUnknown;
     HANDLE deviceHandle = NULL;
 
@@ -129,20 +127,23 @@ VOID NetAdapterUpdatePanel(
         }
     }
 
-    interfaceRcvSpeed = inOctetsValue - Context->LastInboundValue;
-    interfaceXmitSpeed = outOctetsValue - Context->LastOutboundValue;
-    Context->LastInboundValue = inOctetsValue;
-    Context->LastOutboundValue = outOctetsValue;
+    if (Context->NetworkReceiveRaw < inOctetsValue)
+        Context->NetworkReceiveRaw = inOctetsValue;
+    if (Context->NetworkSendRaw < outOctetsValue)
+        Context->NetworkSendRaw = outOctetsValue;
 
-    //interfaceRcvUnicastSpeed = interfaceStats.ifHCInUcastOctets - Context->LastDetailsInboundUnicastValue;
-    //interfaceXmitUnicastSpeed = interfaceStats.ifHCOutUcastOctets - Context->LastDetailsIOutboundUnicastValue;
+    PhUpdateDelta(&Context->NetworkSendDelta, Context->NetworkSendRaw);
+    PhUpdateDelta(&Context->NetworkReceiveDelta, Context->NetworkReceiveRaw);
 
     if (!Context->HaveFirstSample)
     {
-        interfaceRcvSpeed = 0;
-        interfaceXmitSpeed = 0;
+        Context->NetworkSendDelta.Delta = 0;
+        Context->NetworkReceiveDelta.Delta = 0;
         Context->HaveFirstSample = TRUE;
     }
+
+    Context->CurrentNetworkSend = Context->NetworkSendDelta.Delta;
+    Context->CurrentNetworkReceive = Context->NetworkReceiveDelta.Delta;
 
     PhSetDialogItemText(Context->PanelWindowHandle, IDC_STAT_BSENT, PhaFormatSize(outOctetsValue, ULONG_MAX)->Buffer);
     PhSetDialogItemText(Context->PanelWindowHandle, IDC_STAT_BRECEIVED, PhaFormatSize(inOctetsValue, ULONG_MAX)->Buffer);
@@ -165,7 +166,7 @@ VOID NetAdapterUpdatePanel(
 
     PhSetDialogItemText(Context->PanelWindowHandle, IDC_STAT_QUEUELENGTH, PhaFormatString(
         L"%s/s",
-        PhaFormatSize(interfaceRcvSpeed + interfaceXmitSpeed, ULONG_MAX)->Buffer)->Buffer
+        PhaFormatSize(Context->CurrentNetworkReceive + Context->CurrentNetworkSend, ULONG_MAX)->Buffer)->Buffer
         );
 }
 
@@ -472,6 +473,9 @@ BOOLEAN NetAdapterSectionCallback(
         {
             PPH_SYSINFO_CREATE_DIALOG createDialog = (PPH_SYSINFO_CREATE_DIALOG)Parameter1;
 
+            if (!createDialog)
+                break;
+
             createDialog->Instance = PluginInstance->DllBase;
             createDialog->Template = MAKEINTRESOURCE(IDD_NETADAPTER_DIALOG);
             createDialog->DialogProc = NetAdapterDialogProc;
@@ -481,6 +485,9 @@ BOOLEAN NetAdapterSectionCallback(
     case SysInfoGraphGetDrawInfo:
         {
             PPH_GRAPH_DRAW_INFO drawInfo = (PPH_GRAPH_DRAW_INFO)Parameter1;
+
+            if (!drawInfo)
+                break;
 
             drawInfo->Flags = PH_GRAPH_USE_GRID_X | PH_GRAPH_USE_GRID_Y | PH_GRAPH_LABEL_MAX_Y | PH_GRAPH_USE_LINE_2;
             Section->Parameters->ColorSetupFunction(drawInfo, PhGetIntegerSetting(L"ColorIoReadOther"), PhGetIntegerSetting(L"ColorIoWrite"));
@@ -528,13 +535,18 @@ BOOLEAN NetAdapterSectionCallback(
     case SysInfoGraphGetTooltipText:
         {
             PPH_SYSINFO_GRAPH_GET_TOOLTIP_TEXT getTooltipText = (PPH_SYSINFO_GRAPH_GET_TOOLTIP_TEXT)Parameter1;
+            ULONG64 adapterInboundValue;
+            ULONG64 adapterOutboundValue;
 
-            ULONG64 adapterInboundValue = PhGetItemCircularBuffer_ULONG64(
+            if (!getTooltipText)
+                break;
+
+            adapterInboundValue = PhGetItemCircularBuffer_ULONG64(
                 &context->AdapterEntry->InboundBuffer,
                 getTooltipText->Index
                 );
 
-            ULONG64 adapterOutboundValue = PhGetItemCircularBuffer_ULONG64(
+            adapterOutboundValue = PhGetItemCircularBuffer_ULONG64(
                 &context->AdapterEntry->OutboundBuffer,
                 getTooltipText->Index
                 );
@@ -546,18 +558,21 @@ BOOLEAN NetAdapterSectionCallback(
                 ((PPH_STRING)PH_AUTO(PhGetStatisticsTimeString(NULL, getTooltipText->Index)))->Buffer
                 ));
 
-            getTooltipText->Text = Section->GraphState.TooltipText->sr;
+            getTooltipText->Text = PhGetStringRef(Section->GraphState.TooltipText);
         }
         return TRUE;
     case SysInfoGraphDrawPanel:
         {
             PPH_SYSINFO_DRAW_PANEL drawPanel = (PPH_SYSINFO_DRAW_PANEL)Parameter1;
 
+            if (!drawPanel)
+                break;
+
             PhSetReference(&drawPanel->Title, context->AdapterEntry->AdapterName);
             drawPanel->SubTitle = PhFormatString(
                 L"R: %s\nS: %s",
-                PhaFormatSize(context->AdapterEntry->InboundValue, ULONG_MAX)->Buffer,
-                PhaFormatSize(context->AdapterEntry->OutboundValue, ULONG_MAX)->Buffer
+                PhaFormatSize(context->AdapterEntry->CurrentNetworkReceive, ULONG_MAX)->Buffer,
+                PhaFormatSize(context->AdapterEntry->CurrentNetworkSend, ULONG_MAX)->Buffer
                 );
 
             if (!drawPanel->Title)

@@ -1247,6 +1247,8 @@ namespace CustomBuildTool
             string buildPostUrl;
             string buildPostKey;
             string buildPostName;
+            string buildBuildUrl;
+            string buildBuildUrlKey;
 
             if (!BuildNightly)
                 return true;
@@ -1254,6 +1256,8 @@ namespace CustomBuildTool
             buildPostUrl = Environment.ExpandEnvironmentVariables("%APPVEYOR_NIGHTLY_URL%").Replace("%APPVEYOR_NIGHTLY_URL%", string.Empty, StringComparison.OrdinalIgnoreCase);
             buildPostKey = Environment.ExpandEnvironmentVariables("%APPVEYOR_NIGHTLY_KEY%").Replace("%APPVEYOR_NIGHTLY_KEY%", string.Empty, StringComparison.OrdinalIgnoreCase);
             buildPostName = Environment.ExpandEnvironmentVariables("%APPVEYOR_NIGHTLY_NAME%").Replace("%APPVEYOR_NIGHTLY_NAME%", string.Empty, StringComparison.OrdinalIgnoreCase);
+            buildBuildUrl = Environment.ExpandEnvironmentVariables("%APPVEYOR_BUILD_URL%").Replace("%APPVEYOR_BUILD_URL%", string.Empty, StringComparison.OrdinalIgnoreCase);
+            buildBuildUrlKey = Environment.ExpandEnvironmentVariables("%APPVEYOR_BUILD_URL_KEY%").Replace("%APPVEYOR_BUILD_URL_KEY%", string.Empty, StringComparison.OrdinalIgnoreCase);
 
             if (string.IsNullOrEmpty(buildPostUrl))
                 return false;
@@ -1261,8 +1265,10 @@ namespace CustomBuildTool
                 return false;
             if (string.IsNullOrEmpty(buildPostName))
                 return false;
-
-            Console.Write(Environment.NewLine);
+            if (string.IsNullOrEmpty(buildBuildUrl))
+                return false;
+            if (string.IsNullOrEmpty(buildBuildUrlKey))
+                return false;
 
             try
             {
@@ -1276,7 +1282,7 @@ namespace CustomBuildTool
                         FtpWebRequest request = (FtpWebRequest)WebRequest.Create(buildPostUrl + filename);
                         request.Credentials = new NetworkCredential(buildPostKey, buildPostName);
                         request.Method = WebRequestMethods.Ftp.UploadFile;
-                        request.Timeout = 5000;
+                        request.Timeout = System.Threading.Timeout.Infinite;
                         request.EnableSsl = true;
                         request.UsePassive = true;
                         request.UseBinary = true;
@@ -1303,14 +1309,46 @@ namespace CustomBuildTool
             }
             catch (Exception ex)
             {
-                Program.PrintColorMessage("[UploadBuildWebServiceAsync-Exception]" + ex, ConsoleColor.Red);
+                Program.PrintColorMessage("[UploadBuildWebServiceAsync-Exception]" + ex.Message, ConsoleColor.Red);
                 return false;
             }
 
-            if (!AppVeyor.AppVeyorNightlyBuild())
+            try
             {
-                Program.PrintColorMessage("[SKIPPED] (Appveyor missing)", ConsoleColor.Yellow);
-                return true;
+                foreach (string file in Build_Nightly_Files)
+                {
+                    string sourceFile = BuildOutputFolder + file;
+
+                    if (File.Exists(sourceFile))
+                    {
+                        string fileName = Path.GetFileName(sourceFile);
+
+                        using (HttpClient client = new HttpClient())
+                        using (FileStream fileStream = File.OpenRead(sourceFile))
+                        using (StreamContent streamContent = new StreamContent(fileStream))
+                        using (MultipartFormDataContent content = new MultipartFormDataContent())
+                        {
+                            client.DefaultRequestHeaders.Add("X-ApiKey", buildBuildUrlKey);
+                            streamContent.Headers.Add("Content-Type", "application/octet-stream");
+                            streamContent.Headers.Add("Content-Disposition", "form-data; name=\"file\"; filename=\"" + fileName + "\"");
+                            content.Add(streamContent, "file", fileName);
+
+                            var httpTask = client.PostAsync(buildBuildUrl, content);
+                            httpTask.Wait();
+
+                            if (!httpTask.Result.IsSuccessStatusCode)
+                            {
+                                Program.PrintColorMessage("[HttpClient PostAsync] " + httpTask.Result, ConsoleColor.Red);
+                                return false;
+                            }
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Program.PrintColorMessage("[HttpClient PostAsync] " + ex.Message, ConsoleColor.Red);
+                return false;
             }
 
             try

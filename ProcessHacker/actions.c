@@ -77,6 +77,7 @@ HRESULT CALLBACK PhpElevateActionCallbackProc(
     return S_OK;
 }
 
+_Success_(return)
 BOOLEAN PhpShowElevatePrompt(
     _In_ HWND hWnd,
     _In_ PWSTR Message,
@@ -140,14 +141,16 @@ BOOLEAN PhpShowElevatePrompt(
  * \return TRUE if the user was prompted for elevation, otherwise
  * FALSE, in which case you need to show your own error message.
  */
+_Success_(return)
 BOOLEAN PhpShowErrorAndElevateAction(
     _In_ HWND hWnd,
     _In_ PWSTR Message,
     _In_ NTSTATUS Status,
     _In_ PWSTR Command,
-    _Out_ PBOOLEAN Success
+    _Out_opt_ PBOOLEAN Success
     )
 {
+    NTSTATUS status = STATUS_SUCCESS;
     PH_ACTION_ELEVATION_LEVEL elevationLevel;
     INT button = IDNO;
 
@@ -174,7 +177,6 @@ BOOLEAN PhpShowErrorAndElevateAction(
 
     if (elevationLevel == AlwaysElevateAction || button == IDYES)
     {
-        NTSTATUS status;
         HANDLE processHandle;
         LARGE_INTEGER timeout;
         PROCESS_BASIC_INFORMATION basicInfo;
@@ -201,18 +203,13 @@ BOOLEAN PhpShowErrorAndElevateAction(
             }
 
             NtClose(processHandle);
-
-            if (NT_SUCCESS(status))
-            {
-                *Success = TRUE;
-            }
-            else
-            {
-                *Success = FALSE;
-                PhShowStatus(hWnd, Message, status, 0);
-            }
         }
     }
+
+    if (Success)
+        *Success = NT_SUCCESS(status);
+    if (!NT_SUCCESS(status))
+        PhShowStatus(hWnd, Message, status, 0);
 
     return TRUE;
 }
@@ -582,11 +579,10 @@ BOOLEAN PhUiRestartComputer(
     _In_ ULONG Flags
     )
 {
-    NTSTATUS status;
+    ULONG status;
     BOOLEAN forceShutdown;
 
-    // Taskmgr prior to Windows 8 included a feature to force shutdown via NT instead of CSRSS
-    // when holding the control key. (dmex)
+    // Force shutdown when holding the control key. (dmex)
     forceShutdown = !!(GetKeyState(VK_CONTROL) < 0);
 
     if (!PhGetIntegerSetting(L"EnableWarnings") || PhShowConfirmMessage(
@@ -599,17 +595,32 @@ BOOLEAN PhUiRestartComputer(
     {
         if (forceShutdown)
         {
-            if (!NT_SUCCESS(status = NtShutdownSystem(ShutdownReboot)))
-            {
-                PhShowStatus(hWnd, L"Unable to restart the computer.", status, 0);
-            }
+            status = NtShutdownSystem(ShutdownReboot);
+
+            if (NT_SUCCESS(status))
+                return TRUE;
+
+            PhShowStatus(hWnd, L"Unable to restart the computer.", status, 0);
         }
         else
         {
-            if (ExitWindowsEx(EWX_REBOOT | Flags, 0))
+            status = InitiateShutdown(
+                NULL,
+                NULL,
+                0,
+                SHUTDOWN_RESTART | Flags,
+                SHTDN_REASON_FLAG_PLANNED
+                );
+
+            if (status == ERROR_SUCCESS)
                 return TRUE;
-            else
-                PhShowStatus(hWnd, L"Unable to restart the computer.", 0, GetLastError());
+
+            PhShowStatus(hWnd, L"Unable to restart the computer.", 0, status);
+
+            //if (ExitWindowsEx(EWX_REBOOT | EWX_BOOTOPTIONS, 0))
+            //    return TRUE;
+            //else
+            //    PhShowStatus(hWnd, L"Unable to restart the computer.", 0, GetLastError());
         }
     }
 
@@ -621,11 +632,10 @@ BOOLEAN PhUiShutdownComputer(
     _In_ ULONG Flags
     )
 {
-    NTSTATUS status;
+    ULONG status;
     BOOLEAN forceShutdown;
 
-    // Taskmgr prior to Windows 8 included a feature to force shutdown via NT instead of CSRSS
-    // when holding the control key. (dmex)
+    // Force shutdown when holding the control key. (dmex)
     forceShutdown = !!(GetKeyState(VK_CONTROL) < 0);
 
     if (!PhGetIntegerSetting(L"EnableWarnings") || PhShowConfirmMessage(
@@ -638,25 +648,34 @@ BOOLEAN PhUiShutdownComputer(
     {
         if (forceShutdown)
         {
-            if (!NT_SUCCESS(status = NtShutdownSystem(ShutdownPowerOff)))
+            status = NtShutdownSystem(ShutdownPowerOff);
+
+            if (!NT_SUCCESS(status))
             {
                 PhShowStatus(hWnd, L"Unable to shut down the computer.", status, 0);
             }
         }
         else
         {
-            if (ExitWindowsEx(EWX_POWEROFF | Flags, 0))
-            {
+            status = InitiateShutdown(
+                NULL,
+                NULL,
+                0,
+                SHUTDOWN_POWEROFF | Flags,
+                SHTDN_REASON_FLAG_PLANNED
+                );
+
+            if (status == ERROR_SUCCESS)
                 return TRUE;
-            }
-            else if (ExitWindowsEx(EWX_SHUTDOWN | Flags, 0))
-            {
-                return TRUE;
-            }
-            else
-            {
-                PhShowStatus(hWnd, L"Unable to shut down the computer.", 0, GetLastError());
-            }
+
+            PhShowStatus(hWnd, L"Unable to shut down the computer.", 0, status);
+
+            //if (ExitWindowsEx(EWX_POWEROFF | EWX_HYBRID_SHUTDOWN, 0))
+            //    return TRUE;
+            //else if (ExitWindowsEx(EWX_SHUTDOWN | EWX_HYBRID_SHUTDOWN, 0))
+            //    return TRUE;
+            //else
+            //    PhShowStatus(hWnd, L"Unable to shut down the computer.", 0, GetLastError());
         }
     }
 
@@ -2900,7 +2919,7 @@ BOOLEAN PhUiUnloadModule(
         {
             PhShowStatus(
                 hWnd,
-                PhaFormatString(L"Unable to unmap the section view at 0x%Ix", Module->BaseAddress)->Buffer,
+                PhaFormatString(L"Unable to unmap the section view at 0x%p", Module->BaseAddress)->Buffer,
                 status,
                 0
                 );
@@ -3037,15 +3056,19 @@ static BOOLEAN PhpShowErrorHandle(
     _In_opt_ ULONG Win32Result
     )
 {
+    WCHAR value[PH_PTR_STR_LEN_1];
+
+    PhPrintPointer(value, (PVOID)Handle->Handle);
+
     if (!PhIsNullOrEmptyString(Handle->BestObjectName))
     {
         return PhShowContinueStatus(
             hWnd,
             PhaFormatString(
-            L"Unable to %s handle \"%s\" (0x%Ix)",
+            L"Unable to %s handle \"%s\" (%s)",
             Verb,
             Handle->BestObjectName->Buffer,
-            HandleToUlong(Handle->Handle)
+            value
             )->Buffer,
             Status,
             Win32Result
@@ -3056,9 +3079,9 @@ static BOOLEAN PhpShowErrorHandle(
         return PhShowContinueStatus(
             hWnd,
             PhaFormatString(
-            L"Unable to %s handle 0x%Ix",
+            L"Unable to %s handle %s",
             Verb,
-            HandleToUlong(Handle->Handle)
+            value
             )->Buffer,
             Status,
             Win32Result

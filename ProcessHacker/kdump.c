@@ -27,6 +27,7 @@ typedef struct _LIVE_DUMP_CONFIG
     HWND WindowHandle;
     PPH_STRING FileName;
     NTSTATUS LastStatus;
+    HANDLE FileHandle;
 
     union
     {
@@ -43,50 +44,30 @@ typedef struct _LIVE_DUMP_CONFIG
     };
 } LIVE_DUMP_CONFIG, * PLIVE_DUMP_CONFIG;
 
-VOID PhpLiveDumpShowErrorPage(
-    _In_ PLIVE_DUMP_CONFIG Context,
-    _In_ NTSTATUS Status,
-    _In_opt_ ULONG Win32Result
-    );
-
 NTSTATUS PhpCreateLiveKernelDump(
-    _In_ PLIVE_DUMP_CONFIG LiveDumpConfig
+    _In_ PLIVE_DUMP_CONFIG Context
     )
 {
     NTSTATUS status;
-    HANDLE fileHandle = NULL;
     SYSDBG_LIVEDUMP_CONTROL liveDumpControl;
     SYSDBG_LIVEDUMP_CONTROL_FLAGS flags;
     SYSDBG_LIVEDUMP_CONTROL_ADDPAGES pages;
-
-    status = PhCreateFileWin32(
-        &fileHandle,
-        PhGetString(LiveDumpConfig->FileName),
-        FILE_ALL_ACCESS,
-        FILE_ATTRIBUTE_NORMAL,
-        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-        FILE_OVERWRITE_IF,
-        FILE_NON_DIRECTORY_FILE | FILE_SYNCHRONOUS_IO_NONALERT
-        );
-
-    if (!NT_SUCCESS(status))
-        goto CleanupExit;
 
     memset(&liveDumpControl, 0, sizeof(SYSDBG_LIVEDUMP_CONTROL));
     memset(&flags, 0, sizeof(SYSDBG_LIVEDUMP_CONTROL_FLAGS));
     memset(&pages, 0, sizeof(SYSDBG_LIVEDUMP_CONTROL_ADDPAGES));
 
-    if (LiveDumpConfig->UseDumpStorageStack)
+    if (Context->UseDumpStorageStack)
         flags.UseDumpStorageStack = TRUE;
-    if (LiveDumpConfig->CompressMemoryPages)
+    if (Context->CompressMemoryPages)
         flags.CompressMemoryPagesData = TRUE;
-    if (LiveDumpConfig->IncludeUserSpaceMemory)
+    if (Context->IncludeUserSpaceMemory)
         flags.IncludeUserSpaceMemoryPages = TRUE;
-    if (LiveDumpConfig->IncludeHypervisorPages)
+    if (Context->IncludeHypervisorPages)
         pages.HypervisorPages = TRUE;
 
     liveDumpControl.Version = SYSDBG_LIVEDUMP_CONTROL_VERSION;
-    liveDumpControl.DumpFileHandle = fileHandle;
+    liveDumpControl.DumpFileHandle = Context->FileHandle;
     liveDumpControl.AddPagesControl = pages;
     liveDumpControl.Flags = flags;
 
@@ -99,22 +80,23 @@ NTSTATUS PhpCreateLiveKernelDump(
         NULL
         );
 
-CleanupExit:
+    Context->LastStatus = status;
+    Context->KernelDumpActive = FALSE;
 
-    if (fileHandle)
-    {
-        if (!NT_SUCCESS(status))
-            PhDeleteFile(fileHandle);
-
-        NtClose(fileHandle);
-    }
-
-    LiveDumpConfig->LastStatus = status;
-    LiveDumpConfig->KernelDumpActive = FALSE;
-
-    SendMessage(LiveDumpConfig->WindowHandle, TDM_CLICK_BUTTON, IDIGNORE, 0);
+    PostMessage(Context->WindowHandle, TDM_CLICK_BUTTON, IDIGNORE, 0);
 
     return status;
+}
+
+HRESULT CALLBACK PhpLiveDumpErrorPageCallbackProc(
+    _In_ HWND hwndDlg,
+    _In_ UINT uMsg,
+    _In_ WPARAM wParam,
+    _In_ LPARAM lParam,
+    _In_ LONG_PTR dwRefData
+    )
+{
+    return S_OK;
 }
 
 HRESULT CALLBACK PhpLiveDumpProgressDialogCallbackProc(
@@ -136,9 +118,12 @@ HRESULT CALLBACK PhpLiveDumpProgressDialogCallbackProc(
 
             context->WindowHandle = hwndDlg;
             context->KernelDumpActive = TRUE;
+            context->LastStatus = STATUS_SUCCESS;
 
             PhCreateThread2(PhpCreateLiveKernelDump, context);
         }
+        break;
+    case TDN_DESTROYED:
         break;
     case TDN_BUTTON_CLICKED:
         {
@@ -146,7 +131,25 @@ HRESULT CALLBACK PhpLiveDumpProgressDialogCallbackProc(
 
             if (buttonId == IDIGNORE && !NT_SUCCESS(context->LastStatus))
             {
-                PhpLiveDumpShowErrorPage(context, context->LastStatus, 0);
+                TASKDIALOGCONFIG config;
+                PPH_STRING statusMessage = PhGetStatusMessage(context->LastStatus, 0);
+
+                memset(&config, 0, sizeof(TASKDIALOGCONFIG));
+                config.cbSize = sizeof(TASKDIALOGCONFIG);
+                config.dwFlags = TDF_USE_HICON_MAIN | TDF_ALLOW_DIALOG_CANCELLATION;
+                config.hMainIcon = PH_LOAD_SHARED_ICON_LARGE(PhInstanceHandle, MAKEINTRESOURCE(IDI_PROCESSHACKER));
+                config.dwCommonButtons = TDCBF_CLOSE_BUTTON;
+                config.pfCallback = PhpLiveDumpErrorPageCallbackProc;
+                config.lpCallbackData = (LONG_PTR)context;
+                config.pszWindowTitle = PhApplicationName;
+                config.pszMainInstruction = L"Unable to generate a live kernel dump.";
+                config.pszContent = PhGetString(statusMessage);
+
+                SendMessage(context->WindowHandle, TDM_NAVIGATE_PAGE, 0, (LPARAM)&config);
+
+                if (statusMessage)
+                    PhDereferenceObject(statusMessage);
+
                 return S_FALSE;
             }
 
@@ -161,52 +164,29 @@ HRESULT CALLBACK PhpLiveDumpProgressDialogCallbackProc(
     return S_OK;
 }
 
-HRESULT CALLBACK PhpLiveDumpErrorPageCallbackProc(
-    _In_ HWND hwndDlg,
-    _In_ UINT uMsg,
-    _In_ WPARAM wParam,
-    _In_ LPARAM lParam,
-    _In_ LONG_PTR dwRefData
-    )
-{
-    return S_OK;
-}
-
-VOID PhpLiveDumpShowErrorPage(
-    _In_ PLIVE_DUMP_CONFIG Context,
-    _In_ NTSTATUS Status,
-    _In_opt_ ULONG Win32Result
-    )
-{
-    TASKDIALOGCONFIG config;
-    PPH_STRING statusMessage = NULL;
-
-    memset(&config, 0, sizeof(TASKDIALOGCONFIG));
-    config.cbSize = sizeof(TASKDIALOGCONFIG);
-    config.dwFlags = TDF_USE_HICON_MAIN | TDF_ALLOW_DIALOG_CANCELLATION;
-    config.hMainIcon = PH_LOAD_SHARED_ICON_LARGE(PhInstanceHandle, MAKEINTRESOURCE(IDI_PROCESSHACKER));
-    config.dwCommonButtons = TDCBF_CLOSE_BUTTON;
-    config.pfCallback = PhpLiveDumpErrorPageCallbackProc;
-    config.lpCallbackData = (LONG_PTR)Context;
-    config.pszWindowTitle = PhApplicationName;
-    config.pszMainInstruction = L"Unable to generate a live kernel dump.";
-
-    if (statusMessage = PhGetStatusMessage(Status, Win32Result))
-    {
-        config.pszContent = statusMessage->Buffer;
-    }
-
-    SendMessage(Context->WindowHandle, TDM_NAVIGATE_PAGE, 0, (LPARAM)&config);
-
-    if (statusMessage) PhDereferenceObject(statusMessage);
-}
-
 NTSTATUS PhpLiveDumpTaskDialogThread(
     _In_ PVOID ThreadParameter
     )
 {
     PLIVE_DUMP_CONFIG context = (PLIVE_DUMP_CONFIG)ThreadParameter;
+    NTSTATUS status;
     TASKDIALOGCONFIG config;
+
+    status = PhCreateFileWin32(
+        &context->FileHandle,
+        PhGetString(context->FileName),
+        FILE_ALL_ACCESS,
+        FILE_ATTRIBUTE_NORMAL,
+        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+        FILE_OVERWRITE_IF,
+        FILE_NON_DIRECTORY_FILE | FILE_SYNCHRONOUS_IO_NONALERT
+        );
+
+    if (!NT_SUCCESS(status))
+    {
+        PhShowStatus(NULL, L"Unable to generate a live kernel dump.", status, 0);
+        return status;
+    }
 
     memset(&config, 0, sizeof(TASKDIALOGCONFIG));
     config.cbSize = sizeof(TASKDIALOGCONFIG);
@@ -214,16 +194,22 @@ NTSTATUS PhpLiveDumpTaskDialogThread(
     config.hMainIcon = PH_LOAD_SHARED_ICON_LARGE(PhInstanceHandle, MAKEINTRESOURCE(IDI_PROCESSHACKER));
     config.dwCommonButtons = TDCBF_CANCEL_BUTTON;
     config.pfCallback = PhpLiveDumpProgressDialogCallbackProc;
-    config.lpCallbackData = (LONG_PTR)ThreadParameter;
+    config.lpCallbackData = (LONG_PTR)context;
     config.pszWindowTitle = PhApplicationName;
     config.pszMainInstruction = L"Creating live kernel dump...";
 
     TaskDialogIndirect(&config, NULL, NULL, NULL);
 
-    if (context->FileName)
+    if (context->FileHandle)
     {
-        PhDereferenceObject(context->FileName);
+        if (!NT_SUCCESS(context->LastStatus))
+            PhDeleteFile(context->FileHandle);
+
+        NtClose(context->FileHandle);
     }
+
+    if (context->FileName)
+        PhDereferenceObject(context->FileName);
 
     PhFree(context);
 
@@ -269,11 +255,20 @@ INT_PTR CALLBACK PhpLiveDumpDlgProc(
     {
     case WM_INITDIALOG:
         {
+            SendMessage(hwndDlg, WM_SETICON, ICON_SMALL, (LPARAM)PH_LOAD_SHARED_ICON_SMALL(PhInstanceHandle, MAKEINTRESOURCE(IDI_PROCESSHACKER)));
+            SendMessage(hwndDlg, WM_SETICON, ICON_BIG, (LPARAM)PH_LOAD_SHARED_ICON_LARGE(PhInstanceHandle, MAKEINTRESOURCE(IDI_PROCESSHACKER)));
+
             PhCenterWindow(hwndDlg, GetParent(hwndDlg));
 
-            // L"The UserSpace memory option requires Kernel Debugging enabled.\r\n\r\nUncheck the 'Include UserSpace memory' option or run 'bcdedit /debug on' and reboot."
             if (!USER_SHARED_DATA->KdDebuggerEnabled)
+            {
                 Button_Enable(GetDlgItem(hwndDlg, IDC_USERMODE), FALSE);
+            }
+
+            if (!PhGetOwnTokenAttributes().Elevated)
+            {
+                Button_SetElevationRequiredState(GetDlgItem(hwndDlg, IDOK), TRUE);
+            }
 
             PhSetDialogFocus(hwndDlg, GetDlgItem(hwndDlg, IDOK));
 
@@ -307,6 +302,8 @@ INT_PTR CALLBACK PhpLiveDumpDlgProc(
                     }
                     else
                     {
+                        if (dumpConfig->FileName)
+                            PhDereferenceObject(dumpConfig->FileName);
                         PhFree(dumpConfig);
                     }
                 }

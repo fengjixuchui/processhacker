@@ -62,7 +62,6 @@
 PHAPPAPI HWND PhMainWndHandle = NULL;
 BOOLEAN PhMainWndExiting = FALSE;
 BOOLEAN PhMainWndEarlyExit = FALSE;
-HMENU PhMainWndMenuHandle = NULL;
 
 PH_PROVIDER_REGISTRATION PhMwpProcessProviderRegistration;
 PH_PROVIDER_REGISTRATION PhMwpServiceProviderRegistration;
@@ -99,6 +98,7 @@ BOOLEAN PhMainWndInitialization(
     RTL_ATOM windowAtom;
     PPH_STRING windowName;
     PH_RECTANGLE windowRectangle;
+    HMENU windowMenuHandle = NULL;
 
     // Set FirstRun default settings.
 
@@ -140,7 +140,6 @@ BOOLEAN PhMainWndInitialization(
     }
 
     // Create the window.
-
     PhMainWndHandle = CreateWindow(
         MAKEINTATOM(windowAtom),
         PhGetString(windowName),
@@ -151,7 +150,7 @@ BOOLEAN PhMainWndInitialization(
         windowRectangle.Height,
         NULL,
         NULL,
-        PhInstanceHandle,
+        NULL,
         NULL
         );
     PhClearReference(&windowName);
@@ -165,11 +164,14 @@ BOOLEAN PhMainWndInitialization(
         SendMessage(PhMainWndHandle, WM_SETICON, ICON_BIG, (LPARAM)PH_LOAD_SHARED_ICON_LARGE(PhInstanceHandle, MAKEINTRESOURCE(IDI_PROCESSHACKER)));
     }
 
-    // Load the main menu
-    PhMainWndMenuHandle = CreateMenu();
-    PhEMenuToHMenu2(PhMainWndMenuHandle, PhpCreateMainMenu(ULONG_MAX), 0, NULL);
-    SetMenu(PhMainWndHandle, PhMainWndMenuHandle);
-    PhMwpInitializeMainMenu(PhMainWndMenuHandle);
+    // Create the main menu. (dmex)
+    if (windowMenuHandle = CreateMenu())
+    {
+        // Set the menu first so we're able to get WM_DRAWITEM/WM_MEASUREITEM messages.
+        SetMenu(PhMainWndHandle, windowMenuHandle);
+        PhEMenuToHMenu2(windowMenuHandle, PhpCreateMainMenu(ULONG_MAX), 0, NULL);
+        PhMwpInitializeMainMenu(windowMenuHandle);
+    }
 
     // Choose a more appropriate rectangle for the window.
     PhAdjustRectangleToWorkingArea(PhMainWndHandle, &windowRectangle);
@@ -181,8 +183,11 @@ BOOLEAN PhMainWndInitialization(
         );
     UpdateWindow(PhMainWndHandle);
 
-    // Allow WM_PH_ACTIVATE to pass through UIPI.
-    ChangeWindowMessageFilterEx(PhMainWndHandle, WM_PH_ACTIVATE, MSGFLT_ADD, NULL);
+    // Allow WM_PH_ACTIVATE to pass through UIPI. (wj32)
+    if (PhGetOwnTokenAttributes().Elevated)
+    {
+        ChangeWindowMessageFilterEx(PhMainWndHandle, WM_PH_ACTIVATE, MSGFLT_ADD, NULL);
+    }
 
     // Initialize child controls.
     PhMwpInitializeControls(PhMainWndHandle);
@@ -193,6 +198,18 @@ BOOLEAN PhMainWndInitialization(
     PhLogInitialization();
 
     PhInitializeWindowTheme(PhMainWndHandle, PhEnableThemeSupport); // HACK
+
+    if (PhEnableThemeSupport && windowMenuHandle)
+    {
+        MENUINFO menuInfo;
+
+        memset(&menuInfo, 0, sizeof(MENUINFO));
+        menuInfo.cbSize = sizeof(MENUINFO);
+        menuInfo.fMask = MIM_BACKGROUND | MIM_APPLYTOSUBMENUS;
+        menuInfo.hbrBack = CreateSolidBrush(RGB(28, 28, 28));
+
+        SetMenuInfo(windowMenuHandle, &menuInfo);
+    }
 
     // Initialize the main providers.
     PhMwpInitializeProviders();
@@ -352,7 +369,7 @@ RTL_ATOM PhMwpInitializeWindowClass(
 {
     WNDCLASSEX wcex;
     PPH_STRING className;
-    
+
     memset(&wcex, 0, sizeof(WNDCLASSEX));
     wcex.cbSize = sizeof(WNDCLASSEX);
     wcex.lpfnWndProc = PhMwpWndProc;
@@ -512,6 +529,9 @@ NTSTATUS PhMwpLoadStage1Worker(
     DelayedLoadCompleted = TRUE;
     //PostMessage((HWND)Parameter, WM_PH_DELAYED_LOAD_COMPLETED, 0, 0);
 
+    //if (PhEnableThemeSupport)
+    DrawMenuBar(PhMainWndHandle);
+    
     return STATUS_SUCCESS;
 }
 
@@ -558,7 +578,7 @@ VOID PhMwpOnSettingChange(
 }
 
 static NTSTATUS PhpOpenServiceControlManager(
-    _Out_ PHANDLE Handle,
+    _Inout_ PHANDLE Handle,
     _In_ ACCESS_MASK DesiredAccess,
     _In_opt_ PVOID Context
     )
@@ -1973,7 +1993,6 @@ VOID PhMwpLoadSettings(
     PhEnableNetworkProviderResolve = !!PhGetIntegerSetting(L"EnableNetworkResolve");
     PhEnableProcessQueryStage2 = !!PhGetIntegerSetting(L"EnableStage2");
     PhEnableServiceQueryStage2 = !!PhGetIntegerSetting(L"EnableServiceStage2");
-    PhEnableThemeSupport = !!PhGetIntegerSetting(L"EnableThemeSupport");
     PhEnableTooltipSupport = !!PhGetIntegerSetting(L"EnableTooltipSupport");
     PhEnableLinuxSubsystemSupport = !!PhGetIntegerSetting(L"EnableLinuxSubsystemSupport");
     PhEnableNetworkResolveDoHSupport = !!PhGetIntegerSetting(L"EnableNetworkResolveDoH");
@@ -2368,19 +2387,21 @@ PPH_EMENU PhpCreateMainMenu(
         return PhpCreateHelpMenu(menu);
     }
 
-    menuItem = PhCreateEMenuItem(0, PH_MENU_ITEM_LOCATION_HACKER, L"&Hacker", NULL, NULL);
+    menu->Flags |= PH_EMENU_MAINMENU;
+
+    menuItem = PhCreateEMenuItem(PH_EMENU_MAINMENU, PH_MENU_ITEM_LOCATION_HACKER, L"&Hacker", NULL, NULL);
     PhInsertEMenuItem(menu, PhpCreateHackerMenu(menuItem), ULONG_MAX);
 
-    menuItem = PhCreateEMenuItem(0, PH_MENU_ITEM_LOCATION_VIEW, L"&View", NULL, NULL);
+    menuItem = PhCreateEMenuItem(PH_EMENU_MAINMENU, PH_MENU_ITEM_LOCATION_VIEW, L"&View", NULL, NULL);
     PhInsertEMenuItem(menu, PhpCreateViewMenu(menuItem), ULONG_MAX);
 
-    menuItem = PhCreateEMenuItem(0, PH_MENU_ITEM_LOCATION_TOOLS, L"&Tools", NULL, NULL);
+    menuItem = PhCreateEMenuItem(PH_EMENU_MAINMENU, PH_MENU_ITEM_LOCATION_TOOLS, L"&Tools", NULL, NULL);
     PhInsertEMenuItem(menu, PhpCreateToolsMenu(menuItem), ULONG_MAX);
 
-    menuItem = PhCreateEMenuItem(0, PH_MENU_ITEM_LOCATION_USERS, L"&Users", NULL, NULL);
+    menuItem = PhCreateEMenuItem(PH_EMENU_MAINMENU, PH_MENU_ITEM_LOCATION_USERS, L"&Users", NULL, NULL);
     PhInsertEMenuItem(menu, PhpCreateUsersMenu(menuItem), ULONG_MAX);
 
-    menuItem = PhCreateEMenuItem(0, PH_MENU_ITEM_LOCATION_HELP, L"H&elp", NULL, NULL);
+    menuItem = PhCreateEMenuItem(PH_EMENU_MAINMENU, PH_MENU_ITEM_LOCATION_HELP, L"H&elp", NULL, NULL);
     PhInsertEMenuItem(menu, PhpCreateHelpMenu(menuItem), ULONG_MAX);
 
     return menu;

@@ -42,6 +42,7 @@
  */
 
 #include <ph.h>
+#include <settings.h>
 #include <treenew.h>
 
 #include <uxtheme.h>
@@ -294,7 +295,7 @@ LRESULT CALLBACK PhTnpWndProc(
         }
         break;
     case WM_MEASUREITEM:
-        if (PhThemeWindowMeasureItem((LPMEASUREITEMSTRUCT)lParam))
+        if (PhThemeWindowMeasureItem(hwnd, (LPMEASUREITEMSTRUCT)lParam))
             return TRUE;
         break;
     case WM_DRAWITEM:
@@ -5335,7 +5336,15 @@ VOID PhTnpPaint(
         textRect.right = viewRect.right - 20;
         textRect.bottom = viewRect.bottom - 5;
 
-        SetTextColor(hdc, GetSysColor(COLOR_GRAYTEXT));
+        if (PhGetIntegerSetting(L"EnableThemeSupport"))
+        {
+            SetTextColor(hdc, RGB(0xff, 0xff, 0xff));
+        }
+        else
+        {
+            SetTextColor(hdc, GetSysColor(COLOR_GRAYTEXT));
+        }
+
         DrawText(
             hdc,
             Context->EmptyText.Buffer,

@@ -955,6 +955,13 @@ PhInitializeThemeWindowFrame(
     );
 
 PHLIBAPI
+VOID
+NTAPI
+PhInitializeThemeWindowHeader(
+    _In_ HWND HeaderWindow
+    );
+
+PHLIBAPI
 BOOLEAN
 NTAPI
 PhThemeWindowDrawItem(
@@ -965,6 +972,7 @@ PHLIBAPI
 BOOLEAN
 NTAPI
 PhThemeWindowMeasureItem(
+    _In_ HWND WindowHandle,
     _In_ PMEASUREITEMSTRUCT DrawInfo
     );
 

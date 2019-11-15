@@ -399,6 +399,7 @@
 #define IDC_CLEANUP                     1251
 #define IDC_TOGGLEELEVATION             1254
 #define IDC_TOGGLESUSPENDED             1255
+#define IDC_TRUSTEDINSTALLER            1255
 #define IDC_PARENT                      1263
 #define IDC_PROCESSNAME                 1264
 #define IDC_SERVICES_LAYOUT             1266
@@ -570,6 +571,7 @@
 #define ID_PROCESS_IOPRIORITY           40040
 #define ID_PROCESS_MISCELLANEOUS        40041
 #define ID_PROCESS_WINDOW               40042
+#define ID_PROCESS_PAGEPRIORITY         40043
 #define ID_PRIORITY_REALTIME            40048
 #define ID_PRIORITY_HIGH                40049
 #define ID_WINDOW_BRINGTOFRONT          40055

@@ -901,6 +901,15 @@ NTSTATUS PhGetProcessCommandLine(
     return PhGetProcessPebString(ProcessHandle, PhpoCommandLine, CommandLine);
 }
 
+NTSTATUS PhGetProcessCurrentDirectory(
+    _In_ HANDLE ProcessHandle,
+    _In_ BOOLEAN IsWow64,
+    _Out_ PPH_STRING *CurrentDirectory
+    )
+{
+    return PhGetProcessPebString(ProcessHandle, PhpoCurrentDirectory | (IsWow64 ? PhpoWow64 : 0), CurrentDirectory);
+}
+
 NTSTATUS PhGetProcessDesktopInfo(
     _In_ HANDLE ProcessHandle,
     _Out_ PPH_STRING *DesktopInfo
@@ -1551,6 +1560,63 @@ CleanupExit:
         *EventTrace = capturedEventTrace;
         *EventTraceSize = capturedElementSize;
         *EventTraceCount = capturedElementCount;
+    }
+
+    return status;
+}
+
+NTSTATUS PhTraceControl(
+    _In_ TRACE_CONTROL_INFORMATION_CLASS TraceInformationClass,
+    _In_reads_bytes_opt_(InputBufferLength) PVOID InputBuffer,
+    _In_ ULONG InputBufferLength,
+    _Out_opt_ PVOID *TraceInformation,
+    _Out_opt_ PULONG TraceInformationLength
+    )
+{
+    NTSTATUS status;
+    PVOID buffer = NULL;
+    ULONG bufferLength = 0;
+    ULONG returnLength = 0;
+
+    if (!NtTraceControl_Import())
+        return STATUS_UNSUCCESSFUL;
+
+    status = NtTraceControl_Import()(
+        TraceInformationClass,
+        InputBuffer,
+        InputBufferLength,
+        buffer,
+        bufferLength,
+        &returnLength
+        );
+
+    if (status == STATUS_BUFFER_TOO_SMALL)
+    {
+        PhFree(buffer);
+        bufferLength = returnLength;
+        buffer = PhAllocate(bufferLength);
+
+        status = NtTraceControl_Import()(
+            TraceInformationClass,
+            InputBuffer,
+            InputBufferLength,
+            buffer,
+            bufferLength,
+            &bufferLength
+            );
+    }
+
+    if (NT_SUCCESS(status))
+    {
+        if (TraceInformation)
+            *TraceInformation = buffer;
+        if (TraceInformationLength)
+            *TraceInformationLength = bufferLength;
+    }
+    else
+    {
+        if (buffer)
+            PhFree(buffer);
     }
 
     return status;
@@ -7536,6 +7602,52 @@ NTSTATUS PhCreateFileWin32Ex(
     return status;
 }
 
+NTSTATUS PhCreateFile(
+    _Out_ PHANDLE FileHandle,
+    _In_ PWSTR FileName,
+    _In_ ACCESS_MASK DesiredAccess,
+    _In_opt_ ULONG FileAttributes,
+    _In_ ULONG ShareAccess,
+    _In_ ULONG CreateDisposition,
+    _In_ ULONG CreateOptions
+    )
+{
+    NTSTATUS status;
+    HANDLE fileHandle;
+    UNICODE_STRING fileName;
+    OBJECT_ATTRIBUTES oa;
+    IO_STATUS_BLOCK isb;
+
+    RtlInitUnicodeString(&fileName, FileName);
+    InitializeObjectAttributes(
+        &oa,
+        &fileName,
+        OBJ_CASE_INSENSITIVE,
+        NULL,
+        NULL
+        );
+
+    status = NtCreateFile(
+        &fileHandle,
+        DesiredAccess,
+        &oa,
+        &isb,
+        NULL,
+        FileAttributes,
+        ShareAccess,
+        CreateDisposition,
+        CreateOptions,
+        NULL,
+        0
+        );
+
+    if (NT_SUCCESS(status))
+    {
+        *FileHandle = fileHandle;
+    }
+
+    return status;
+}
 NTSTATUS PhOpenFileWin32(
     _Out_ PHANDLE FileHandle,
     _In_ PWSTR FileName,
@@ -7677,6 +7789,26 @@ NTSTATUS PhQueryAttributesFileWin32(
     return status;
 }
 
+NTSTATUS PhQueryAttributesFile(
+    _In_ PWSTR FileName,
+    _Out_ PFILE_BASIC_INFORMATION FileInformation
+    )
+{
+    UNICODE_STRING fileName;
+    OBJECT_ATTRIBUTES oa;
+
+    RtlInitUnicodeString(&fileName, FileName);
+    InitializeObjectAttributes(
+        &oa,
+        &fileName,
+        OBJ_CASE_INSENSITIVE,
+        NULL,
+        NULL
+        );
+
+    return NtQueryAttributesFile(&oa, FileInformation);
+}
+
 BOOLEAN PhDoesFileExistsWin32(
     _In_ PWSTR FileName
     )
@@ -7685,6 +7817,27 @@ BOOLEAN PhDoesFileExistsWin32(
     FILE_BASIC_INFORMATION basicInfo;
 
     status = PhQueryAttributesFileWin32(FileName, &basicInfo);
+
+    if (
+        NT_SUCCESS(status) ||
+        status == STATUS_SHARING_VIOLATION ||
+        status == STATUS_ACCESS_DENIED
+        )
+    {
+        return TRUE;
+    }
+
+    return FALSE;
+}
+
+BOOLEAN PhDoesFileExists(
+    _In_ PWSTR FileName
+    )
+{
+    NTSTATUS status;
+    FILE_BASIC_INFORMATION basicInfo;
+
+    status = PhQueryAttributesFile(FileName, &basicInfo);
 
     if (
         NT_SUCCESS(status) ||

@@ -238,6 +238,15 @@ PhGetProcessCommandLine(
 PHLIBAPI
 NTSTATUS
 NTAPI
+PhGetProcessCurrentDirectory(
+    _In_ HANDLE ProcessHandle,
+    _In_ BOOLEAN IsWow64,
+    _Out_ PPH_STRING* CurrentDirectory
+    );
+
+PHLIBAPI
+NTSTATUS
+NTAPI
 PhGetProcessDesktopInfo(
     _In_ HANDLE ProcessHandle,
     _Out_ PPH_STRING *DesktopInfo
@@ -361,6 +370,17 @@ PhGetProcessUnloadedDlls(
     _Out_ PVOID *EventTrace,
     _Out_ ULONG *EventTraceSize,
     _Out_ ULONG *EventTraceCount
+    );
+
+PHLIBAPI
+NTSTATUS
+NTAPI
+PhTraceControl(
+    _In_ TRACE_CONTROL_INFORMATION_CLASS TraceInformationClass,
+    _In_reads_bytes_opt_(InputBufferLength) PVOID InputBuffer,
+    _In_ ULONG InputBufferLength,
+    _Out_opt_ PVOID* TraceInformation,
+    _Out_opt_ PULONG TraceInformationLength
     );
 
 PHLIBAPI
@@ -1302,6 +1322,19 @@ PhCreateFileWin32Ex(
 PHLIBAPI
 NTSTATUS
 NTAPI
+PhCreateFile(
+    _Out_ PHANDLE FileHandle,
+    _In_ PWSTR FileName,
+    _In_ ACCESS_MASK DesiredAccess,
+    _In_opt_ ULONG FileAttributes,
+    _In_ ULONG ShareAccess,
+    _In_ ULONG CreateDisposition,
+    _In_ ULONG CreateOptions
+    );
+
+PHLIBAPI
+NTSTATUS
+NTAPI
 PhOpenFileWin32(
     _Out_ PHANDLE FileHandle,
     _In_ PWSTR FileName,
@@ -1342,6 +1375,13 @@ PHLIBAPI
 BOOLEAN
 NTAPI
 PhDoesFileExistsWin32(
+    _In_ PWSTR FileName
+    );
+
+PHLIBAPI
+BOOLEAN
+NTAPI
+PhDoesFileExists(
     _In_ PWSTR FileName
     );
 

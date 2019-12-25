@@ -307,7 +307,7 @@ NTSTATUS GeoIPUpdateThread(
 
         memset(buffer, 0, PAGE_SIZE);
 
-        status = PhFormatString(L"Downloading GeoLite2-Country.mmdb...");
+        status = PhFormatString(L"Downloading GeoLite2-Country...");
         SendMessage(context->DialogHandle, TDM_SET_MARQUEE_PROGRESS_BAR, FALSE, 0);
         SendMessage(context->DialogHandle, TDM_UPDATE_ELEMENT_TEXT, TDE_MAIN_INSTRUCTION, (LPARAM)status->Buffer);
         PhDereferenceObject(status);
@@ -326,7 +326,7 @@ NTSTATUS GeoIPUpdateThread(
 
         while (PhHttpSocketReadData(httpContext, buffer, PAGE_SIZE, &bytesDownloaded))
         {
-            // If we get zero bytes, the file was uploaded or there was an error.
+            // If we get zero bytes, the file was downloaded or there was an error.
             if (bytesDownloaded == 0)
                 break;
 
@@ -369,7 +369,7 @@ NTSTATUS GeoIPUpdateThread(
                 WCHAR string[MAX_PATH];
 
                 // L"Downloaded: %s of %s (%.0f%%)\r\nSpeed: %s/s"
-                PhInitFormatS(&format[0], L"Uploaded: ");
+                PhInitFormatS(&format[0], L"Downloaded: ");
                 PhInitFormatSize(&format[1], downloadedBytes);
                 PhInitFormatS(&format[2], L" of ");
                 PhInitFormatSize(&format[3], contentLength);

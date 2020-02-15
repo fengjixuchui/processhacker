@@ -3,6 +3,7 @@
  *   trigger editor
  *
  * Copyright (C) 2011-2015 wj32
+ * Copyright (C) 2020 dmex
  *
  * This file is part of Process Hacker.
  *
@@ -21,6 +22,7 @@
  */
 
 #include "extsrv.h"
+#include <hndlinfo.h>
 
 typedef struct _ES_TRIGGER_DATA
 {
@@ -370,53 +372,6 @@ VOID EsDestroyServiceTriggerContext(
     PhFree(Context);
 }
 
-PPH_STRING EspLookupEtwPublisherName(
-    _In_ PGUID Guid
-    )
-{
-    PPH_STRING guidString;
-    PPH_STRING keyName;
-    HANDLE keyHandle;
-    PPH_STRING publisherName = NULL;
-
-    // Copied from ProcessHacker\hndlinfo.c.
-
-    guidString = PhFormatGuid(Guid);
-
-    keyName = PhConcatStringRef2(&PublishersKeyName, &guidString->sr);
-
-    if (NT_SUCCESS(PhOpenKey(
-        &keyHandle,
-        KEY_READ,
-        PH_KEY_LOCAL_MACHINE,
-        &keyName->sr,
-        0
-        )))
-    {
-        publisherName = PhQueryRegistryString(keyHandle, NULL);
-
-        if (publisherName && publisherName->Length == 0)
-        {
-            PhDereferenceObject(publisherName);
-            publisherName = NULL;
-        }
-
-        NtClose(keyHandle);
-    }
-
-    PhDereferenceObject(keyName);
-
-    if (publisherName)
-    {
-        PhDereferenceObject(guidString);
-        return publisherName;
-    }
-    else
-    {
-        return guidString;
-    }
-}
-
 BOOLEAN EspEnumerateEtwPublishers(
     _Out_ PETW_PUBLISHER_ENTRY *Entries,
     _Out_ PULONG NumberOfEntries
@@ -625,8 +580,8 @@ VOID EspFormatTriggerInfo(
             {
                 PPH_STRING publisherName;
 
-                // Try to lookup the publisher name from the GUID.
-                publisherName = EspLookupEtwPublisherName(Info->Subtype);
+                // Try to lookup the publisher name from the GUID. (wj32)
+                publisherName = PhGetEtwPublisherName(Info->Subtype);
                 stringUsed = PhConcatStrings2(L"Custom: ", publisherName->Buffer);
                 PhDereferenceObject(publisherName);
                 triggerString = stringUsed->Buffer;
@@ -1162,7 +1117,7 @@ PPH_STRING EspConvertNewLinesToNulls(
     SIZE_T count;
     SIZE_T i;
 
-    text = PhCreateStringEx(NULL, String->Length + 2); // plus one character for an extra null terminator (see below)
+    text = PhCreateStringEx(NULL, String->Length + sizeof(UNICODE_NULL)); // plus one character for an extra null terminator (see below)
     text->Length = 0;
     count = 0;
 
@@ -1176,7 +1131,7 @@ PPH_STRING EspConvertNewLinesToNulls(
 
         if (String->Buffer[i] == '\n')
         {
-            text->Buffer[count++] = 0;
+            text->Buffer[count++] = UNICODE_NULL;
             continue;
         }
 
@@ -1186,11 +1141,11 @@ PPH_STRING EspConvertNewLinesToNulls(
     if (count != 0)
     {
         // Make sure we have an extra null terminator at the end, as required of multistrings.
-        if (text->Buffer[count - 1] != 0)
-            text->Buffer[count++] = 0;
+        if (text->Buffer[count - 1] != UNICODE_NULL)
+            text->Buffer[count++] = UNICODE_NULL;
     }
 
-    text->Length = count * 2;
+    text->Length = count * sizeof(WCHAR);
 
     return text;
 }
@@ -1204,9 +1159,9 @@ PPH_STRING EspConvertNullsToSpaces(
 
     text = PhDuplicateString(String);
 
-    for (j = 0; j < text->Length / 2; j++)
+    for (j = 0; j < text->Length / sizeof(WCHAR); j++)
     {
-        if (text->Buffer[j] == 0)
+        if (text->Buffer[j] == UNICODE_NULL)
             text->Buffer[j] = ' ';
     }
 
@@ -1335,8 +1290,8 @@ INT_PTR CALLBACK EspServiceTriggerDlgProc(
                 {
                     PPH_STRING publisherName;
 
-                    // Try to select the publisher name in the subtype list.
-                    publisherName = EspLookupEtwPublisherName(context->EditingInfo->Subtype);
+                    // Try to select the publisher name in the subtype list. (wj32)
+                    publisherName = PhGetEtwPublisherName(context->EditingInfo->Subtype);
                     PhSelectComboBoxString(GetDlgItem(hwndDlg, IDC_SUBTYPE), publisherName->Buffer, FALSE);
                     PhDereferenceObject(publisherName);
                 }

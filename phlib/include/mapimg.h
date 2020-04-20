@@ -454,7 +454,7 @@ typedef struct _PH_MAPPED_IMAGE_TLS_CALLBACKS
         PIMAGE_TLS_DIRECTORY64 TlsDirectory64;
     };
 
-    PVOID CallbackIndexes;
+    //PVOID CallbackIndexes;
     PVOID CallbackAddress;
 
     ULONG NumberOfEntries;
@@ -492,6 +492,36 @@ NTAPI
 PhGetMappedImageProdIdHeader(
     _In_ PPH_MAPPED_IMAGE MappedImage,
     _Out_ PPH_MAPPED_IMAGE_PRODID ProdIdHeader
+    );
+
+typedef struct _PH_IMAGE_DEBUG_ENTRY
+{
+    ULONG Characteristics;
+    ULONG TimeDateStamp;
+    USHORT MajorVersion;
+    USHORT MinorVersion;
+    ULONG Type;
+    ULONG SizeOfData;
+    ULONG AddressOfRawData;
+    ULONG PointerToRawData;
+} PH_IMAGE_DEBUG_ENTRY, *PPH_IMAGE_DEBUG_ENTRY;
+
+typedef struct _PH_MAPPED_IMAGE_DEBUG
+{
+    PPH_MAPPED_IMAGE MappedImage;
+    PIMAGE_DATA_DIRECTORY DataDirectory;
+    PIMAGE_DEBUG_DIRECTORY DebugDirectory;
+
+    ULONG NumberOfEntries;
+    PPH_IMAGE_DEBUG_ENTRY DebugEntries;
+} PH_MAPPED_IMAGE_DEBUG, *PPH_MAPPED_IMAGE_DEBUG;
+
+PHLIBAPI
+NTSTATUS
+NTAPI
+PhGetMappedImageDebug(
+    _In_ PPH_MAPPED_IMAGE MappedImage,
+    _Out_ PPH_MAPPED_IMAGE_DEBUG Debug
     );
 
 // maplib

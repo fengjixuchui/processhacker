@@ -1385,7 +1385,7 @@ NTSTATUS PhGetMappedImageCfg64(
         return STATUS_INVALID_VIEW_SIZE;
 
     CfgConfig->MappedImage = MappedImage;
-    CfgConfig->EntrySize = sizeof(FIELD_OFFSET(IMAGE_CFG_ENTRY, Rva)) +
+    CfgConfig->EntrySize = RTL_FIELD_SIZE(IMAGE_CFG_ENTRY, Rva) +
         (ULONG)((config64->GuardFlags & IMAGE_GUARD_CF_FUNCTION_TABLE_SIZE_MASK) >> IMAGE_GUARD_CF_FUNCTION_TABLE_SIZE_SHIFT);
     CfgConfig->CfgInstrumented = !!(config64->GuardFlags & IMAGE_GUARD_CF_INSTRUMENTED);
     CfgConfig->WriteIntegrityChecks = !!(config64->GuardFlags & IMAGE_GUARD_CFW_INSTRUMENTED);
@@ -1497,7 +1497,7 @@ NTSTATUS PhGetMappedImageCfg32(
         return STATUS_INVALID_VIEW_SIZE;
 
     CfgConfig->MappedImage = MappedImage;
-    CfgConfig->EntrySize = sizeof(FIELD_OFFSET(IMAGE_CFG_ENTRY, Rva)) +
+    CfgConfig->EntrySize = RTL_FIELD_SIZE(IMAGE_CFG_ENTRY, Rva) +
         (ULONG)((config32->GuardFlags & IMAGE_GUARD_CF_FUNCTION_TABLE_SIZE_MASK) >> IMAGE_GUARD_CF_FUNCTION_TABLE_SIZE_SHIFT);
     CfgConfig->CfgInstrumented = !!(config32->GuardFlags & IMAGE_GUARD_CF_INSTRUMENTED);
     CfgConfig->WriteIntegrityChecks = !!(config32->GuardFlags & IMAGE_GUARD_CFW_INSTRUMENTED);
@@ -1651,7 +1651,7 @@ NTSTATUS PhGetMappedImageCfgEntry(
     Entry->Rva = cfgMappedEntry->Rva;
 
     // Optional header after the rva entry
-    if (CfgConfig->EntrySize > sizeof(FIELD_OFFSET(IMAGE_CFG_ENTRY, Rva)))
+    if (CfgConfig->EntrySize > RTL_FIELD_SIZE(IMAGE_CFG_ENTRY, Rva))
     {
         Entry->SuppressedCall = cfgMappedEntry->SuppressedCall;
         Entry->Reserved = cfgMappedEntry->Reserved;
@@ -1829,7 +1829,7 @@ NTSTATUS PhGetMappedImageTlsCallbackDirectory32(
 
     __try
     {
-        PhpMappedImageProbe(MappedImage, tlsDirectory, sizeof(PIMAGE_TLS_DIRECTORY32));
+        PhpMappedImageProbe(MappedImage, tlsDirectory, sizeof(IMAGE_TLS_DIRECTORY32));
     }
     __except (EXCEPTION_EXECUTE_HANDLER)
     {
@@ -1843,7 +1843,7 @@ NTSTATUS PhGetMappedImageTlsCallbackDirectory32(
     else
         tlsCallbacksOffset = 0;
 
-    TlsCallbacks->CallbackIndexes = PhMappedImageRvaToVa(MappedImage, PtrToUlong(PTR_SUB_OFFSET(tlsDirectory->AddressOfIndex, tlsCallbacksOffset)), NULL);
+    //TlsCallbacks->CallbackIndexes = PhMappedImageRvaToVa(MappedImage, PtrToUlong(PTR_SUB_OFFSET(tlsDirectory->AddressOfIndex, tlsCallbacksOffset)), NULL);
     TlsCallbacks->CallbackAddress = PhMappedImageRvaToVa(MappedImage, PtrToUlong(PTR_SUB_OFFSET(tlsDirectory->AddressOfCallBacks, tlsCallbacksOffset)), NULL);
 
     if (TlsCallbacks->CallbackAddress)
@@ -1883,7 +1883,7 @@ NTSTATUS PhGetMappedImageTlsCallbackDirectory64(
 
     __try
     {
-        PhpMappedImageProbe(MappedImage, tlsDirectory, sizeof(PIMAGE_TLS_DIRECTORY64));
+        PhpMappedImageProbe(MappedImage, tlsDirectory, sizeof(IMAGE_TLS_DIRECTORY64));
     }
     __except (EXCEPTION_EXECUTE_HANDLER)
     {
@@ -1897,7 +1897,7 @@ NTSTATUS PhGetMappedImageTlsCallbackDirectory64(
     else
         tlsCallbacksOffset = 0;
 
-    TlsCallbacks->CallbackIndexes = PhMappedImageRvaToVa(MappedImage, PtrToUlong(PTR_SUB_OFFSET(tlsDirectory->AddressOfIndex, tlsCallbacksOffset)), NULL);
+    //TlsCallbacks->CallbackIndexes = PhMappedImageRvaToVa(MappedImage, PtrToUlong(PTR_SUB_OFFSET(tlsDirectory->AddressOfIndex, tlsCallbacksOffset)), NULL);
     TlsCallbacks->CallbackAddress = PhMappedImageRvaToVa(MappedImage, PtrToUlong(PTR_SUB_OFFSET(tlsDirectory->AddressOfCallBacks, tlsCallbacksOffset)), NULL);
 
     if (TlsCallbacks->CallbackAddress)
@@ -2232,4 +2232,73 @@ NTSTATUS PhGetMappedImageProdIdHeader(
     }
 
     return STATUS_FAIL_CHECK;
+}
+
+NTSTATUS PhGetMappedImageDebug(
+    _In_ PPH_MAPPED_IMAGE MappedImage,
+    _Out_ PPH_MAPPED_IMAGE_DEBUG Debug
+    )
+{
+    NTSTATUS status;
+    PIMAGE_DEBUG_DIRECTORY debugDirectory;
+    ULONG currentCount;
+
+    status = PhGetMappedImageDataEntry(
+        MappedImage,
+        IMAGE_DIRECTORY_ENTRY_DEBUG,
+        &Debug->DataDirectory
+        );
+
+    if (!NT_SUCCESS(status))
+        return status;
+
+    debugDirectory = PhMappedImageRvaToVa(
+        MappedImage,
+        Debug->DataDirectory->VirtualAddress,
+        NULL
+        );
+
+    if (!debugDirectory)
+        return STATUS_INVALID_PARAMETER;
+
+    __try
+    {
+        PhpMappedImageProbe(MappedImage, debugDirectory, sizeof(IMAGE_DEBUG_DIRECTORY));
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {   
+        return GetExceptionCode();
+    }
+
+    currentCount = Debug->DataDirectory->Size / sizeof(IMAGE_DEBUG_DIRECTORY);
+
+    Debug->DebugDirectory = debugDirectory;
+    Debug->NumberOfEntries = currentCount;
+    Debug->DebugEntries = PhAllocate(sizeof(PH_IMAGE_DEBUG_ENTRY) * currentCount);
+    memset(Debug->DebugEntries, 0, sizeof(PH_IMAGE_DEBUG_ENTRY) * currentCount);
+
+    for (ULONG i = 0; i < currentCount; i++)
+    {
+        PIMAGE_DEBUG_DIRECTORY entry = PTR_ADD_OFFSET(debugDirectory, i * sizeof(IMAGE_DEBUG_DIRECTORY));
+
+        __try
+        {
+            PhpMappedImageProbe(MappedImage, entry, sizeof(IMAGE_DEBUG_DIRECTORY));
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            break;
+        }
+
+        Debug->DebugEntries[i].Characteristics = entry->Characteristics;
+        Debug->DebugEntries[i].TimeDateStamp = entry->TimeDateStamp;
+        Debug->DebugEntries[i].MajorVersion = entry->MajorVersion;
+        Debug->DebugEntries[i].MinorVersion = entry->MinorVersion;
+        Debug->DebugEntries[i].Type = entry->Type;
+        Debug->DebugEntries[i].SizeOfData = entry->SizeOfData;
+        Debug->DebugEntries[i].AddressOfRawData = entry->AddressOfRawData;
+        Debug->DebugEntries[i].PointerToRawData = entry->PointerToRawData;
+    }
+
+    return status;
 }

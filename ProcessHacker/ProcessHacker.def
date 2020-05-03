@@ -235,6 +235,7 @@ EXPORTS
 
 ; phnative
     PhCreateDirectory
+    PhCreateFile
     PhCreateFileWin32
     PhCreateFileWin32Ex
     PhCreateKey
@@ -320,6 +321,7 @@ EXPORTS
     PhSetTokenPrivilege
     PhSetTokenPrivilege2
     PhSetTokenSessionId
+    PhSetValueKey
     PhTerminateProcess = PhTerminateProcessPublic
     PhTransceiveNamedPipe
     PhUnloadDllProcess

@@ -574,7 +574,7 @@ VOID SetupSetWindowsOptions(
             PhGetString(string),
             PhGetString(clientPathString),
             PhGetString(Context->SetupInstallPath),
-            L"ProcessHacker3.0.0"
+            L"PeViewer3.0.0"
             );
 
         PhDereferenceObject(clientPathString);
@@ -978,21 +978,24 @@ VOID SetupCreateLink(
     if (SUCCEEDED(IShellLinkW_QueryInterface(shellLinkPtr, &IID_IPropertyStore, &propertyStorePtr)))
     {
         PROPVARIANT propValue;
-    
+        SIZE_T propValueLength;
+
         PropVariantInit(&propValue);
         propValue.vt = VT_LPWSTR;
-        propValue.pwszVal = AppId;
+        propValueLength = PhCountStringZ(AppId) * sizeof(WCHAR);
+        propValue.pwszVal = (PWSTR)CoTaskMemAlloc(propValueLength + sizeof(UNICODE_NULL));
+        memset(propValue.pwszVal, 0, propValueLength + sizeof(UNICODE_NULL));
+        memcpy(propValue.pwszVal, AppId, propValueLength);
     
         IPropertyStore_SetValue(propertyStorePtr, &PKEY_AppUserModel_ID, &propValue);
 
         PropVariantClear(&propValue);
+
         //PropVariantInit(&propValue);
         //propValue.vt = VT_CLSID;
         //propValue.puuid = GUID;
         //
         //IPropertyStore_SetValue(propertyStorePtr, &PKEY_AppUserModel_ToastActivatorCLSID, &propValue);
-        //
-        //PropVariantClear(&propValue);
 
         IPropertyStore_Commit(propertyStorePtr);
         IPropertyStore_Release(propertyStorePtr);
@@ -1016,7 +1019,7 @@ VOID SetupCreateLink(
     // Save the shortcut to the file system...
     IPersistFile_Save(persistFilePtr, LinkFilePath, TRUE);
 
-    //SHChangeNotify(SHCNE_UPDATEITEM, SHCNF_PATH | SHCNF_FLUSHNOWAIT, LinkFilePath, NULL);
+    SHChangeNotify(SHCNE_UPDATEITEM, SHCNF_PATH, LinkFilePath, NULL);
 
 CleanupExit:
     if (persistFilePtr)

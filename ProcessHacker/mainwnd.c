@@ -454,7 +454,7 @@ VOID PhMwpInitializeControls(
     PhMwpProcessTreeNewHandle = CreateWindow(
         PH_TREENEW_CLASSNAME,
         NULL,
-        WS_CHILD | WS_VISIBLE | WS_CLIPCHILDREN | WS_CLIPSIBLINGS | TN_STYLE_ICONS | TN_STYLE_DOUBLE_BUFFERED | TN_STYLE_ANIMATE_DIVIDER | thinRows | treelistBorder | treelistCustomColors,
+        WS_CHILD | WS_CLIPCHILDREN | WS_CLIPSIBLINGS | TN_STYLE_ICONS | TN_STYLE_DOUBLE_BUFFERED | TN_STYLE_ANIMATE_DIVIDER | thinRows | treelistBorder | treelistCustomColors,
         0,
         0,
         3,
@@ -3432,11 +3432,10 @@ VOID PhShowIconContextMenu(
 
 VOID PhShowIconNotification(
     _In_ PWSTR Title,
-    _In_ PWSTR Text,
-    _In_ ULONG Flags
+    _In_ PWSTR Text
     )
 {
-    PhNfShowBalloonTip(Title, Text, 10, Flags);
+    PhNfShowBalloonTip(Title, Text, 10);
 }
 
 VOID PhShowDetailsForIconNotification(

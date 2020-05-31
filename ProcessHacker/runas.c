@@ -394,12 +394,12 @@ BOOLEAN PhpInitializeNetApi(VOID)
         {
             NetUserEnum_I = PhGetDllBaseProcedureAddress(netapiModuleHandle, "NetUserEnum", 0);
             NetApiBufferFree_I = PhGetDllBaseProcedureAddress(netapiModuleHandle, "NetApiBufferFree", 0);
-        }
 
-        if (netapiModuleHandle && !NetUserEnum_I && !NetApiBufferFree_I)
-        {
-            FreeLibrary(netapiModuleHandle);
-            netapiModuleHandle = NULL;
+            if (!(NetUserEnum_I && NetApiBufferFree_I))
+            {
+                FreeLibrary(netapiModuleHandle);
+                netapiModuleHandle = NULL;
+            }
         }
 
         PhEndInitOnce(&initOnce);
@@ -424,12 +424,12 @@ BOOLEAN PhpInitializeMRUList(VOID)
             AddMRUString_I = PhGetDllBaseProcedureAddress(comctl32ModuleHandle, "AddMRUStringW", 0);
             EnumMRUList_I = PhGetDllBaseProcedureAddress(comctl32ModuleHandle, "EnumMRUListW", 0);
             FreeMRUList_I = PhGetDllBaseProcedureAddress(comctl32ModuleHandle, "FreeMRUList", 0);
-        }
 
-        if (!CreateMRUList_I && !AddMRUString_I && !EnumMRUList_I && !FreeMRUList_I && comctl32ModuleHandle)
-        {
-            FreeLibrary(comctl32ModuleHandle);
-            comctl32ModuleHandle = NULL;
+            if (!(CreateMRUList_I && AddMRUString_I && EnumMRUList_I && FreeMRUList_I))
+            {
+                FreeLibrary(comctl32ModuleHandle);
+                comctl32ModuleHandle = NULL;
+            }
         }
 
         PhEndInitOnce(&initOnce);
@@ -2033,7 +2033,7 @@ PPH_STRING PhpQueryRunFileParentDirectory(
     }
 }
 
-NTSTATUS PhpCustomShellExecute(
+NTSTATUS PhpRunAsShellExecute(
     _In_ HWND hWnd,
     _In_ PWSTR FileName,
     _In_opt_ PWSTR Parameters,
@@ -2214,7 +2214,7 @@ NTSTATUS PhpRunFileProgram(
     // If the file doesn't exist its probably a URL with http, https, www (dmex)
     if (isDirectory || !PhDoesFileExistsWin32(fullFileName->Buffer))
     {
-        status = PhpCustomShellExecute(
+        status = PhpRunAsShellExecute(
             Context->WindowHandle,
             commandString->Buffer,
             NULL,
@@ -2226,9 +2226,9 @@ NTSTATUS PhpRunFileProgram(
         // and clicking the OK button, so we'll implement the same functionality. (dmex)
         (!!(GetKeyState(VK_CONTROL) < 0 && !!(GetKeyState(VK_SHIFT) < 0))))
     {
-        status = PhpCustomShellExecute(
+        status = PhpRunAsShellExecute(
             Context->WindowHandle,
-            fullFileName->Buffer,
+            PhGetString(fullFileName),
             PhGetString(argumentsString),
             TRUE
             );
@@ -2388,12 +2388,12 @@ NTSTATUS PhpRunFileProgram(
 
             NtClose(newProcessHandle);
         }
-        else if (WIN32_FROM_NTSTATUS(status) == ERROR_ELEVATION_REQUIRED)
+        else if (NT_NTWIN32(status) && WIN32_FROM_NTSTATUS(status) == ERROR_ELEVATION_REQUIRED)
         {
-            status = PhpCustomShellExecute(
+            status = PhpRunAsShellExecute(
                 Context->WindowHandle,
-                commandString->Buffer,
-                NULL,
+                PhGetString(fullFileName),
+                PhGetString(argumentsString),
                 TRUE
                 );
         }

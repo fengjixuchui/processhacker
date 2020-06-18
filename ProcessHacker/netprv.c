@@ -25,13 +25,12 @@
 #include <phapp.h>
 #include <phplug.h>
 #include <phsettings.h>
-#include <netprv.h>
-#include <svcsup.h>
-#include <workqueue.h>
-
 #include <apiimport.h>
 #include <extmgri.h>
+#include <netprv.h>
 #include <procprv.h>
+#include <svcsup.h>
+#include <workqueue.h>
 
 typedef struct _PH_NETWORK_CONNECTION
 {

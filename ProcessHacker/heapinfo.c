@@ -35,7 +35,16 @@ typedef struct _PROCESS_HEAPS_CONTEXT
     HWND WindowHandle;
     HWND ListViewHandle;
     HFONT BoldFont;
-    ULONG IsWow64;
+    union
+    {
+        BOOLEAN Flags;
+        struct
+        {
+            BOOLEAN Initialized : 1;
+            BOOLEAN IsWow64 : 1;
+            BOOLEAN Spare : 6;
+        };
+    };
     PPH_PROCESS_ITEM ProcessItem;
     PVOID ProcessHeap;
     PVOID DebugBuffer;
@@ -140,13 +149,6 @@ NTSTATUS PhGetProcessHeapSignature(
     _Out_ ULONG* HeapSignature
     );
 
-NTSTATUS PhGetProcessHeapCounters(
-    _In_ HANDLE ProcessHandle,
-    _In_ PVOID HeapAddress,
-    _In_ ULONG IsWow64,
-    _Out_ PVOID* HeapCounters
-    );
-
 INT_PTR CALLBACK PhpProcessHeapsDlgProc(
     _In_ HWND hwndDlg,
     _In_ UINT uMsg,
@@ -163,7 +165,7 @@ VOID PhShowProcessHeapsDialog(
 
     context = PhAllocateZero(sizeof(PROCESS_HEAPS_CONTEXT));
     context->ProcessItem = PhReferenceObject(ProcessItem);
-    context->IsWow64 = ProcessItem->IsWow64;
+    context->IsWow64 = !!ProcessItem->IsWow64;
 
     DialogBoxParam(
         PhInstanceHandle,
@@ -345,7 +347,7 @@ PPH_STRING PhGetProcessHeapFlagsText(
     if (Flags & HEAP_CREATE_ENABLE_TRACING)
         PhAppendStringBuilder2(&stringBuilder, L"Tracing enabled, ");
     if (Flags & HEAP_CREATE_ENABLE_EXECUTE)
-        PhAppendStringBuilder2(&stringBuilder, L"Execute enabled, ");
+        PhAppendStringBuilder2(&stringBuilder, L"Executable, ");
     if (Flags & HEAP_CREATE_SEGMENT_HEAP)
         PhAppendStringBuilder2(&stringBuilder, L"Segment heap, ");
     if (Flags & HEAP_CREATE_HARDENED)
@@ -407,6 +409,19 @@ VOID PhpEnumerateProcessHeaps(
 
     sizesInBytes = Button_GetCheck(GetDlgItem(Context->WindowHandle, IDC_SIZESINBYTES)) == BST_CHECKED;
 
+    if (Context->ProcessItem->IsImmersive)
+    {
+        // TODO: Even if the immersive process is active we can still deadlock when the
+        // RtlQueryProcessDebugInformation thread hasn't completed and
+        // the UWP process is automatically suspended by the shell. (dmex)
+        PhShowError2(
+            Context->WindowHandle,
+            L"Unable to query heap information.",
+            L"Please activate the UWP immersive process before refreshing heap information."
+            );
+        return;
+    }
+
     ExtendedListView_SetRedraw(Context->ListViewHandle, FALSE);
     ListView_DeleteAllItems(Context->ListViewHandle);
 
@@ -433,6 +448,8 @@ VOID PhpEnumerateProcessHeaps(
             if (!NT_SUCCESS(status))
             {
                 PhUiDisconnectFromPhSvc();
+
+                PhShowStatus(Context->WindowHandle, L"Unable to query heap information.", status, 0);
                 goto CleanupExit;
             }
 
@@ -503,7 +520,10 @@ VOID PhpEnumerateProcessHeaps(
             );
 
         if (!NT_SUCCESS(status))
+        {
+            PhShowStatus(Context->WindowHandle, L"Unable to query heap information.", status, 0);
             goto CleanupExit;
+        }
 
         Context->DebugBuffer = heapDebugInfo;
         Context->ProcessHeap = heapDebugInfo->DefaultHeap;
@@ -635,8 +655,6 @@ INT_PTR CALLBACK PhpProcessHeapsDlgProc(
                 PhLoadWindowPlacementFromSetting(L"SegmentHeapWindowPosition", L"SegmentHeapWindowSize", hwndDlg);
             else
                 PhCenterWindow(hwndDlg, PhMainWndHandle);
-
-            PhpEnumerateProcessHeaps(context);
         }
         break;
     case WM_DESTROY:
@@ -667,6 +685,15 @@ INT_PTR CALLBACK PhpProcessHeapsDlgProc(
 
             PhRemoveWindowContext(hwndDlg, PH_WINDOW_CONTEXT_DEFAULT);
             PhFree(context);
+        }
+        break;
+    case WM_SHOWWINDOW:
+        {
+            if (!context->Initialized)
+            {
+                PostMessage(context->WindowHandle, WM_COMMAND, MAKEWPARAM(IDC_REFRESH, 0), 0);
+                context->Initialized = TRUE;
+            }
         }
         break;
     case WM_COMMAND:

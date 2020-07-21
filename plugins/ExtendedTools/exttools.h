@@ -297,7 +297,7 @@ typedef struct _ET_PROCESS_BLOCK
     PH_CIRCULAR_BUFFER_ULONG MemorySharedHistory;
     PH_CIRCULAR_BUFFER_ULONG GpuCommittedHistory;
 
-    FLOAT GpuNodeUsage;
+    FLOAT GpuNodeUtilization;
     ULONG64 GpuDedicatedUsage;
     ULONG64 GpuSharedUsage;
     ULONG64 GpuCommitUsage;
@@ -660,20 +660,40 @@ VOID EtShowWsWatchDialog(
 
 // counters
 
-ULONG64 EtLookupProcessGpuEngineUtilization(
-    _In_opt_ HANDLE ProcessId
+FLOAT EtLookupProcessGpuUtilization(
+    _In_ HANDLE ProcessId
+    );
+
+FLOAT EtLookupTotalGpuUtilization(
+    VOID
+    );
+
+FLOAT EtLookupTotalGpuEngineUtilization(
+    _In_ ULONG64 EngineId
     );
 
 ULONG64 EtLookupProcessGpuDedicated(
     _In_opt_ HANDLE ProcessId
     );
 
+ULONG64 EtLookupTotalGpuDedicated(
+    VOID
+    );
+
 ULONG64 EtLookupProcessGpuSharedUsage(
     _In_opt_ HANDLE ProcessId
     );
 
+ULONG64 EtLookupTotalGpuShared(
+    VOID
+    );
+
 ULONG64 EtLookupProcessGpuCommitUsage(
     _In_opt_ HANDLE ProcessId
+    );
+
+ULONG64 EtLookupTotalGpuCommit(
+    VOID
     );
 
 #endif

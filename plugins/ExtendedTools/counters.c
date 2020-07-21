@@ -2,7 +2,7 @@
  * Process Hacker .NET Tools -
  *   GPU performance counters
  *
- * Copyright (C) 2019 dmex
+ * Copyright (C) 2019-2020 dmex
  *
  * This file is part of Process Hacker.
  *
@@ -30,19 +30,29 @@ NTSTATUS NTAPI EtGpuCounterQueryThread(
     );
 
 PPH_HASHTABLE EtGpuRunningTimeHashTable = NULL;
-PH_QUEUED_LOCK EtGpuRunningTimeHashTableLock = PH_QUEUED_LOCK_INIT;
+PH_FAST_LOCK EtGpuRunningTimeHashTableLock = PH_FAST_LOCK_INIT;
 PPH_HASHTABLE EtGpuDedicatedHashTable = NULL;
-PH_QUEUED_LOCK EtGpuDedicatedHashTableLock = PH_QUEUED_LOCK_INIT;
+PH_FAST_LOCK EtGpuDedicatedHashTableLock = PH_FAST_LOCK_INIT;
 PPH_HASHTABLE EtGpuSharedHashTable = NULL;
-PH_QUEUED_LOCK EtGpuSharedHashTableLock = PH_QUEUED_LOCK_INIT;
+PH_FAST_LOCK EtGpuSharedHashTableLock = PH_FAST_LOCK_INIT;
 PPH_HASHTABLE EtGpuCommitHashTable = NULL;
-PH_QUEUED_LOCK EtGpuCommitHashTableLock = PH_QUEUED_LOCK_INIT;
+PH_FAST_LOCK EtGpuCommitHashTableLock = PH_FAST_LOCK_INIT;
 
 typedef struct _ET_GPU_COUNTER
 {
-    HANDLE ProcessId;
-    ULONG64 Value;
     ULONG64 Node;
+    HANDLE ProcessId;
+    ULONG64 EngineId;
+
+    union
+    {
+        DOUBLE Value;
+        struct
+        {
+            ULONG64 Value64;
+            FLOAT ValueF;
+        };
+    };
 } ET_GPU_COUNTER, * PET_GPU_COUNTER;
 
 //typedef struct _ET_COUNTER_CONFIG
@@ -117,13 +127,13 @@ VOID EtGpuCountersInitialization(
     }
 }
 
-ULONG64 EtLookupProcessGpuEngineUtilization(
-    _In_opt_ HANDLE ProcessId
+FLOAT EtLookupProcessGpuUtilization(
+    _In_ HANDLE ProcessId
     )
 {
     ET_GPU_COUNTER lookupEntry;
     PET_GPU_COUNTER entry;
-    ULONG64 value = 0;
+    FLOAT value = 0;
 
     if (!EtGpuRunningTimeHashTable)
     {
@@ -131,16 +141,93 @@ ULONG64 EtLookupProcessGpuEngineUtilization(
         return 0;
     }
 
-    lookupEntry.ProcessId = ProcessId;
+    PhAcquireFastLockShared(&EtGpuRunningTimeHashTableLock);
 
-    PhAcquireQueuedLockShared(&EtGpuRunningTimeHashTableLock);
+    lookupEntry.ProcessId = ProcessId;
 
     if (entry = PhFindEntryHashtable(EtGpuRunningTimeHashTable, &lookupEntry))
     {
-        value = entry->Value;
+        FLOAT usage = (FLOAT)entry->Value;
+
+        if (usage > value)
+            value = usage;
     }
 
-    PhReleaseQueuedLockShared(&EtGpuRunningTimeHashTableLock);
+    PhReleaseFastLockShared(&EtGpuRunningTimeHashTableLock);
+
+    if (value > 0)
+        value = value / 100;
+
+    return value;
+}
+
+FLOAT EtLookupTotalGpuUtilization(
+    VOID
+    )
+{
+    FLOAT value = 0;
+    ULONG enumerationKey;
+    PET_GPU_COUNTER entry;
+
+    if (!EtGpuRunningTimeHashTable)
+    {
+        EtGpuCountersInitialization();
+        return 0;
+    }
+
+    PhAcquireFastLockShared(&EtGpuRunningTimeHashTableLock);
+
+    enumerationKey = 0;
+
+    while (PhEnumHashtable(EtGpuRunningTimeHashTable, (PVOID*)&entry, &enumerationKey))
+    {
+        FLOAT usage = (FLOAT)entry->Value;
+
+        if (usage > value)
+            value = usage;
+    }
+
+    PhReleaseFastLockShared(&EtGpuRunningTimeHashTableLock);
+
+    if (value > 0)
+        value = value / 100;
+
+    return value;
+}
+
+FLOAT EtLookupTotalGpuEngineUtilization(
+    _In_ ULONG64 EngineId
+    )
+{
+    FLOAT value = 0;
+    ULONG enumerationKey;
+    PET_GPU_COUNTER entry;
+
+    if (!EtGpuRunningTimeHashTable)
+    {
+        EtGpuCountersInitialization();
+        return 0;
+    }
+
+    PhAcquireFastLockShared(&EtGpuRunningTimeHashTableLock);
+
+    enumerationKey = 0;
+
+    while (PhEnumHashtable(EtGpuRunningTimeHashTable, (PVOID*)&entry, &enumerationKey))
+    {
+        if (entry->EngineId != EngineId)
+            continue;
+
+        FLOAT usage = (FLOAT)entry->Value;
+
+        if (usage > value)
+            value = usage;
+    }
+
+    PhReleaseFastLockShared(&EtGpuRunningTimeHashTableLock);
+
+    if (value > 0)
+        value = value / 100;
 
     return value;
 }
@@ -159,16 +246,44 @@ ULONG64 EtLookupProcessGpuDedicated(
         return 0;
     }
 
-    lookupEntry.ProcessId = ProcessId;
+    PhAcquireFastLockShared(&EtGpuDedicatedHashTableLock);
 
-    PhAcquireQueuedLockShared(&EtGpuDedicatedHashTableLock);
+    lookupEntry.ProcessId = ProcessId;
 
     if (entry = PhFindEntryHashtable(EtGpuDedicatedHashTable, &lookupEntry))
     {
-        value = entry->Value;
+        value = entry->Value64;
     }
 
-    PhReleaseQueuedLockShared(&EtGpuDedicatedHashTableLock);
+    PhReleaseFastLockShared(&EtGpuDedicatedHashTableLock);
+
+    return value;
+}
+
+ULONG64 EtLookupTotalGpuDedicated(
+    VOID
+    )
+{
+    ULONG64 value = 0;
+    ULONG enumerationKey;
+    PET_GPU_COUNTER entry;
+
+    if (!EtGpuDedicatedHashTable)
+    {
+        EtGpuCountersInitialization();
+        return 0;
+    }
+
+    PhAcquireFastLockShared(&EtGpuDedicatedHashTableLock);
+
+    enumerationKey = 0;
+
+    while (PhEnumHashtable(EtGpuDedicatedHashTable, (PVOID*)&entry, &enumerationKey))
+    {
+        value += entry->Value64;
+    }
+
+    PhReleaseFastLockShared(&EtGpuDedicatedHashTableLock);
 
     return value;
 }
@@ -189,14 +304,42 @@ ULONG64 EtLookupProcessGpuSharedUsage(
 
     lookupEntry.ProcessId = ProcessId;
 
-    PhAcquireQueuedLockShared(&EtGpuSharedHashTableLock);
+    PhAcquireFastLockShared(&EtGpuSharedHashTableLock);
 
     if (entry = PhFindEntryHashtable(EtGpuSharedHashTable, &lookupEntry))
     {
-        value = entry->Value;
+        value = entry->Value64;
     }
 
-    PhReleaseQueuedLockShared(&EtGpuSharedHashTableLock);
+    PhReleaseFastLockShared(&EtGpuSharedHashTableLock);
+
+    return value;
+}
+
+ULONG64 EtLookupTotalGpuShared(
+    VOID
+    )
+{
+    ULONG64 value = 0;
+    ULONG enumerationKey;
+    PET_GPU_COUNTER entry;
+
+    if (!EtGpuSharedHashTable)
+    {
+        EtGpuCountersInitialization();
+        return 0;
+    }
+
+    PhAcquireFastLockShared(&EtGpuSharedHashTableLock);
+
+    enumerationKey = 0;
+
+    while (PhEnumHashtable(EtGpuSharedHashTable, (PVOID*)&entry, &enumerationKey))
+    {
+        value += entry->Value64;
+    }
+
+    PhReleaseFastLockShared(&EtGpuSharedHashTableLock);
 
     return value;
 }
@@ -217,21 +360,49 @@ ULONG64 EtLookupProcessGpuCommitUsage(
 
     lookupEntry.ProcessId = ProcessId;
 
-    PhAcquireQueuedLockShared(&EtGpuCommitHashTableLock);
+    PhAcquireFastLockShared(&EtGpuCommitHashTableLock);
 
     if (entry = PhFindEntryHashtable(EtGpuCommitHashTable, &lookupEntry))
     {
-        value = entry->Value;
+        value = entry->Value64;
     }
 
-    PhReleaseQueuedLockShared(&EtGpuCommitHashTableLock);
+    PhReleaseFastLockShared(&EtGpuCommitHashTableLock);
+
+    return value;
+}
+
+ULONG64 EtLookupTotalGpuCommit(
+    VOID
+    )
+{
+    ULONG64 value = 0;
+    ULONG enumerationKey;
+    PET_GPU_COUNTER entry;
+
+    if (!EtGpuCommitHashTable)
+    {
+        EtGpuCountersInitialization();
+        return 0;
+    }
+
+    PhAcquireFastLockShared(&EtGpuCommitHashTableLock);
+
+    enumerationKey = 0;
+
+    while (PhEnumHashtable(EtGpuCommitHashTable, (PVOID*)&entry, &enumerationKey))
+    {
+        value += entry->Value64;
+    }
+
+    PhReleaseFastLockShared(&EtGpuCommitHashTableLock);
 
     return value;
 }
 
 VOID ParseGpuEngineUtilizationCounter(
     _In_ PWSTR InstanceName,
-    _In_ ULONG64 InstanceValue
+    _In_ DOUBLE InstanceValue
     )
 {
     PH_STRINGREF partSr;
@@ -267,20 +438,28 @@ VOID ParseGpuEngineUtilizationCounter(
     if (pidPartSr.Length)
     {
         ULONG64 processId;
+        ULONG64 engineId;
         PET_GPU_COUNTER entry;
         ET_GPU_COUNTER lookupEntry;
 
-        if (PhStringToInteger64(&pidPartSr, 10, &processId))
+        if (
+            PhStringToInteger64(&pidPartSr, 10, &processId) &&
+            PhStringToInteger64(&engPartSr, 10, &engineId)
+            )
         {
             lookupEntry.ProcessId = (HANDLE)processId;
 
             if (entry = PhFindEntryHashtable(EtGpuRunningTimeHashTable, &lookupEntry))
             {
-                entry->Value = entry->Value + InstanceValue;
+                if (entry->Value < InstanceValue)
+                    entry->Value = InstanceValue;
+
+                entry->EngineId = engineId;
             }
             else
             {
                 lookupEntry.ProcessId = (HANDLE)processId;
+                lookupEntry.EngineId = engineId;
                 lookupEntry.Value = InstanceValue;
 
                 PhAddEntryHashtable(EtGpuRunningTimeHashTable, &lookupEntry);
@@ -326,12 +505,13 @@ VOID ParseGpuProcessMemoryDedicatedUsageCounter(
 
             if (entry = PhFindEntryHashtable(EtGpuDedicatedHashTable, &lookupEntry))
             {
-                entry->Value = entry->Value + InstanceValue;
+                if (entry->Value64 < InstanceValue)
+                    entry->Value64 = InstanceValue;
             }
             else
             {
                 lookupEntry.ProcessId = (HANDLE)processId;
-                lookupEntry.Value = InstanceValue;
+                lookupEntry.Value64 = InstanceValue;
 
                 PhAddEntryHashtable(EtGpuDedicatedHashTable, &lookupEntry);
             }
@@ -376,15 +556,13 @@ VOID ParseGpuProcessMemorySharedUsageCounter(
 
             if (entry = PhFindEntryHashtable(EtGpuSharedHashTable, &lookupEntry))
             {
-                if (entry->Value < InstanceValue)
-                {
-                    entry->Value = InstanceValue;
-                }
+                if (entry->Value64 < InstanceValue)
+                    entry->Value64 = InstanceValue;
             }
             else
             {
                 lookupEntry.ProcessId = (HANDLE)processId;
-                lookupEntry.Value = InstanceValue;
+                lookupEntry.Value64 = InstanceValue;
 
                 PhAddEntryHashtable(EtGpuSharedHashTable, &lookupEntry);
             }
@@ -429,15 +607,13 @@ VOID ParseGpuProcessMemoryCommitUsageCounter(
 
             if (entry = PhFindEntryHashtable(EtGpuCommitHashTable, &lookupEntry))
             {
-                if (entry->Value < InstanceValue)
-                {
-                    entry->Value = InstanceValue;
-                }
+                if (entry->Value64 < InstanceValue)
+                    entry->Value64 = InstanceValue;
             }
             else
             {
                 lookupEntry.ProcessId = (HANDLE)processId;
-                lookupEntry.Value = InstanceValue;
+                lookupEntry.Value64 = InstanceValue;
 
                 PhAddEntryHashtable(EtGpuCommitHashTable, &lookupEntry);
             }
@@ -531,7 +707,7 @@ NTSTATUS NTAPI EtGpuCounterQueryThread(
     // \GPU Local Adapter Memory(*)\Local Usage
     // \GPU Non Local Adapter Memory(*)\Non Local Usage
 
-    if (PdhAddCounter(gpuPerfCounterQueryHandle, L"\\GPU Engine(*)\\Running Time", 0, &gpuPerfCounterRunningTimeHandle) != ERROR_SUCCESS)
+    if (PdhAddCounter(gpuPerfCounterQueryHandle, L"\\GPU Engine(*)\\Utilization Percentage", 0, &gpuPerfCounterRunningTimeHandle) != ERROR_SUCCESS)
         goto CleanupExit;
     if (PdhAddCounter(gpuPerfCounterQueryHandle, L"\\GPU Process Memory(*)\\Shared Usage", 0, &gpuPerfCounterSharedUsageHandle) != ERROR_SUCCESS)
         goto CleanupExit;
@@ -552,12 +728,12 @@ NTSTATUS NTAPI EtGpuCounterQueryThread(
         {
             if (GetCounterArrayBuffer(
                 gpuPerfCounterRunningTimeHandle,
-                PDH_FMT_LARGE,
+                PDH_FMT_DOUBLE,
                 &bufferCount,
                 &buffer
                 ))
             {
-                PhAcquireQueuedLockExclusive(&EtGpuRunningTimeHashTableLock);
+                PhAcquireFastLockExclusive(&EtGpuRunningTimeHashTableLock);
 
                 PhClearHashtable(EtGpuRunningTimeHashTable);
 
@@ -567,13 +743,13 @@ NTSTATUS NTAPI EtGpuCounterQueryThread(
 
                     if (entry->FmtValue.CStatus)
                         continue;
-                    if (entry->FmtValue.largeValue == 0)
+                    if (entry->FmtValue.doubleValue == 0)
                         continue;
 
-                    ParseGpuEngineUtilizationCounter(entry->szName, entry->FmtValue.largeValue);
+                    ParseGpuEngineUtilizationCounter(entry->szName, entry->FmtValue.doubleValue);
                 }
 
-                PhReleaseQueuedLockExclusive(&EtGpuRunningTimeHashTableLock);
+                PhReleaseFastLockExclusive(&EtGpuRunningTimeHashTableLock);
 
                 PhFree(buffer);
             }
@@ -588,9 +764,21 @@ NTSTATUS NTAPI EtGpuCounterQueryThread(
                 &buffer
                 ))
             {
-                PhAcquireQueuedLockExclusive(&EtGpuDedicatedHashTableLock);
+                PhAcquireFastLockExclusive(&EtGpuDedicatedHashTableLock);
 
-                PhClearHashtable(EtGpuDedicatedHashTable);
+                // Reset hashtable once in a while.
+                {
+                    static ULONG64 lastTickCount = 0;
+                    ULONG64 tickCount;
+
+                    tickCount = NtGetTickCount64();
+
+                    if (tickCount - lastTickCount >= 10 * CLOCKS_PER_SEC)
+                    {
+                        PhClearHashtable(EtGpuDedicatedHashTable);
+                        lastTickCount = tickCount;
+                    }
+                }
 
                 for (ULONG i = 0; i < bufferCount; i++)
                 {
@@ -604,7 +792,7 @@ NTSTATUS NTAPI EtGpuCounterQueryThread(
                     ParseGpuProcessMemoryDedicatedUsageCounter(entry->szName, entry->FmtValue.largeValue);
                 }
 
-                PhReleaseQueuedLockExclusive(&EtGpuDedicatedHashTableLock);
+                PhReleaseFastLockExclusive(&EtGpuDedicatedHashTableLock);
 
                 PhFree(buffer);
             }
@@ -619,9 +807,21 @@ NTSTATUS NTAPI EtGpuCounterQueryThread(
                 &buffer
                 ))
             {
-                PhAcquireQueuedLockExclusive(&EtGpuSharedHashTableLock);
+                PhAcquireFastLockExclusive(&EtGpuSharedHashTableLock);
 
-                PhClearHashtable(EtGpuSharedHashTable);
+                // Reset hashtable once in a while.
+                {
+                    static ULONG64 lastTickCount = 0;
+                    ULONG64 tickCount;
+
+                    tickCount = NtGetTickCount64();
+
+                    if (tickCount - lastTickCount >= 10 * CLOCKS_PER_SEC)
+                    {
+                        PhClearHashtable(EtGpuSharedHashTable);
+                        lastTickCount = tickCount;
+                    }
+                }
 
                 for (ULONG i = 0; i < bufferCount; i++)
                 {
@@ -635,7 +835,7 @@ NTSTATUS NTAPI EtGpuCounterQueryThread(
                     ParseGpuProcessMemorySharedUsageCounter(entry->szName, entry->FmtValue.largeValue);
                 }
 
-                PhReleaseQueuedLockExclusive(&EtGpuSharedHashTableLock);
+                PhReleaseFastLockExclusive(&EtGpuSharedHashTableLock);
 
                 PhFree(buffer);
             }
@@ -650,9 +850,21 @@ NTSTATUS NTAPI EtGpuCounterQueryThread(
                 &buffer
                 ))
             {
-                PhAcquireQueuedLockExclusive(&EtGpuCommitHashTableLock);
+                PhAcquireFastLockExclusive(&EtGpuCommitHashTableLock);
 
-                PhClearHashtable(EtGpuCommitHashTable);
+                // Reset hashtable once in a while.
+                {
+                    static ULONG64 lastTickCount = 0;
+                    ULONG64 tickCount;
+
+                    tickCount = NtGetTickCount64();
+
+                    if (tickCount - lastTickCount >= 10 * 1000)
+                    {
+                        PhClearHashtable(EtGpuCommitHashTable);
+                        lastTickCount = tickCount;
+                    }
+                }
 
                 for (ULONG i = 0; i < bufferCount; i++)
                 {
@@ -666,7 +878,7 @@ NTSTATUS NTAPI EtGpuCounterQueryThread(
                     ParseGpuProcessMemoryCommitUsageCounter(entry->szName, entry->FmtValue.largeValue);
                 }
 
-                PhReleaseQueuedLockExclusive(&EtGpuCommitHashTableLock);
+                PhReleaseFastLockExclusive(&EtGpuCommitHashTableLock);
 
                 PhFree(buffer);
             }

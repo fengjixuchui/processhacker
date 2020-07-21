@@ -1111,31 +1111,6 @@ namespace CustomBuildTool
             return true;
         }
 
-        //public static bool BuildRenameReleaseFiles()
-        //{
-        //    try
-        //    {
-        //        foreach (string file in Build_Release_Files)
-        //        {
-        //            string sourceFile = BuildOutputFolder + file;
-        //            string destinationFile = BuildOutputFolder + file.Replace("-build-", $"-{BuildVersion}-");
-        //
-        //            if (File.Exists(destinationFile))
-        //                File.Delete(destinationFile);
-        //
-        //            if (File.Exists(sourceFile))
-        //                File.Move(sourceFile, destinationFile);
-        //        }
-        //    }
-        //    catch (Exception ex)
-        //    {
-        //        Program.PrintColorMessage("[WebServiceUploadBuild] " + ex, ConsoleColor.Red);
-        //        return false;
-        //    }
-        //
-        //    return true;
-        //}
-
         public static bool BuildSolution(string Solution, BuildFlags Flags)
         {
             if ((Flags & BuildFlags.Build32bit) == BuildFlags.Build32bit)
@@ -1265,12 +1240,12 @@ namespace CustomBuildTool
                 BuildCommit = BuildCommit,
                 BuildMessage = buildMessage,
 
-                BinUrl = $"https://ci.appveyor.com/api/buildjobs/{buildJobId}/artifacts/processhacker-build-bin.zip",
+                BinUrl = $"https://ci.appveyor.com/api/buildjobs/{buildJobId}/artifacts/processhacker-{BuildVersion}-bin.zip",
                 BinLength = BuildBinFileLength.ToString(),
                 BinHash = BuildBinHash,
                 BinSig = BuildBinSig,
 
-                SetupUrl = $"https://ci.appveyor.com/api/buildjobs/{buildJobId}/artifacts/processhacker-build-setup.exe",
+                SetupUrl = $"https://ci.appveyor.com/api/buildjobs/{buildJobId}/artifacts/processhacker-{BuildVersion}-setup.exe",
                 SetupLength = BuildSetupFileLength.ToString(),
                 SetupHash = BuildSetupHash,
                 SetupSig = BuildSetupSig,
@@ -1384,8 +1359,13 @@ namespace CustomBuildTool
 
                     if (File.Exists(sourceFile))
                     {
-                        string filename = Path.GetFileName(sourceFile);
-                        FtpWebRequest request = (FtpWebRequest)WebRequest.Create(buildPostUrl + filename);
+                        string filename;
+                        FtpWebRequest request;
+
+                        filename = Path.GetFileName(sourceFile);
+                        filename = filename.Replace("-build-", $"-{BuildVersion}-", StringComparison.OrdinalIgnoreCase);
+
+                        request = (FtpWebRequest)WebRequest.Create(buildPostUrl + filename);
                         request.Credentials = new NetworkCredential(buildPostKey, buildPostName);
                         request.Method = WebRequestMethods.Ftp.UploadFile;
                         request.Timeout = System.Threading.Timeout.Infinite;
@@ -1470,7 +1450,16 @@ namespace CustomBuildTool
 
                     if (File.Exists(sourceFile))
                     {
-                        if (!AppVeyor.UploadFile(sourceFile))
+                        bool uploaded;
+                        string fileName;
+
+                        fileName = sourceFile.Replace("-build-", $"-{BuildVersion}-", StringComparison.OrdinalIgnoreCase);
+
+                        File.Move(sourceFile, fileName, true);
+                        uploaded = AppVeyor.UploadFile(fileName);
+                        File.Move(fileName, sourceFile, true);
+
+                        if (!uploaded)
                         {
                             Program.PrintColorMessage("[WebServiceAppveyorUploadFile]", ConsoleColor.Red);
                             return false;

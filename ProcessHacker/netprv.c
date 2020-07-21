@@ -442,59 +442,26 @@ PPH_STRING PhGetHostNameFromAddressEx(
     if (!(dnsReverseNameString = PhpGetDnsReverseNameFromAddress(Address)))
         return NULL;
 
-    if (PhEnableNetworkResolveDoHSupport)
+    if (!(dnsRecordList = PhDnsQuery(
+        NULL,
+        dnsReverseNameString->Buffer,
+        DNS_TYPE_PTR
+        )))
     {
-        if (!dnsLocalQuery)
-        {
-            dnsRecordList = PhHttpDnsQuery(
-                NULL,
-                dnsReverseNameString->Buffer,
-                DNS_TYPE_PTR
-                );
-        }
-
-        if (!dnsRecordList && DnsQuery_W_Import())
-        {
-            DnsQuery_W_Import()(
-                dnsReverseNameString->Buffer,
-                DNS_TYPE_PTR,
-                DNS_QUERY_NO_HOSTS_FILE, // DNS_QUERY_BYPASS_CACHE
-                NULL,
-                &dnsRecordList,
-                NULL
-                );
-        }
+        PhDereferenceObject(dnsReverseNameString);
+        return NULL;
     }
-    else
+
+    for (PDNS_RECORD dnsRecord = dnsRecordList; dnsRecord; dnsRecord = dnsRecord->pNext)
     {
-        if (DnsQuery_W_Import())
+        if (dnsRecord->wType == DNS_TYPE_PTR)
         {
-            DnsQuery_W_Import()(
-                dnsReverseNameString->Buffer,
-                DNS_TYPE_PTR,
-                DNS_QUERY_NO_HOSTS_FILE, // DNS_QUERY_BYPASS_CACHE
-                NULL,
-                &dnsRecordList,
-                NULL
-                );
+            dnsHostNameString = PhCreateString(dnsRecord->Data.PTR.pNameHost); // Return the first result (dmex)
+            break;
         }
     }
 
-    if (dnsRecordList)
-    {
-        for (PDNS_RECORD dnsRecord = dnsRecordList; dnsRecord; dnsRecord = dnsRecord->pNext)
-        {
-            if (dnsRecord->wType == DNS_TYPE_PTR)
-            {
-                dnsHostNameString = PhCreateString(dnsRecord->Data.PTR.pNameHost); // Return the first result (dmex)
-                break;
-            }
-        }
-
-        if (DnsFree_Import())
-            DnsFree_Import()(dnsRecordList, DnsFreeRecordList);
-    }
-
+    PhDnsFree(dnsRecordList);
     PhDereferenceObject(dnsReverseNameString);
 
     return dnsHostNameString;

@@ -49,6 +49,37 @@ typedef struct _PH_WMI_ENTRY
     PPH_STRING UserName;
 } PH_WMI_ENTRY, *PPH_WMI_ENTRY;
 
+PVOID PhpGetWmiProviderDllBase(
+    VOID
+    )
+{
+    static PH_INITONCE initOnce = PH_INITONCE_INIT;
+    static PVOID dllBase = NULL;
+
+    if (PhBeginInitOnce(&initOnce))
+    {
+        PPH_STRING systemDirectory;
+        PPH_STRING systemFileName;
+
+        if (systemDirectory = PhGetSystemDirectory())
+        {
+            if (systemFileName = PhConcatStringRefZ(&systemDirectory->sr, L"\\wbem\\wbemprox.dll"))
+            {
+                if (!(dllBase = PhGetLoaderEntryFullDllBase(systemFileName->Buffer)))
+                    dllBase = LoadLibrary(systemFileName->Buffer);
+
+                PhDereferenceObject(systemFileName);
+            }
+
+            PhDereferenceObject(systemDirectory);
+        }
+
+        PhEndInitOnce(&initOnce);
+    }
+
+    return dllBase;
+}
+
 HRESULT PhpWmiProviderExecMethod(
     _In_ PWSTR Method,
     _In_ PWSTR ProcessIdString,
@@ -56,24 +87,27 @@ HRESULT PhpWmiProviderExecMethod(
     )
 {
     HRESULT status;
+    PVOID wbemproxDllBase = NULL;
     PPH_STRING queryString = NULL;
     IWbemLocator* wbemLocator = NULL;
     IWbemServices* wbemServices = NULL;
     IEnumWbemClassObject* wbemEnumerator = NULL;
-    IWbemClassObject *wbemClassObject;
+    IWbemClassObject* wbemClassObject;
 
-    if (FAILED(status = CoCreateInstance(
+    if (!(wbemproxDllBase = PhpGetWmiProviderDllBase()))
+        return ERROR_MOD_NOT_FOUND;
+
+    status = PhGetClassObjectDllBase(
+        wbemproxDllBase,
         &CLSID_WbemLocator,
-        0,
-        CLSCTX_INPROC_SERVER,
         &IID_IWbemLocator,
         &wbemLocator
-        )))
-    {
-        goto CleanupExit;
-    }
+        );
 
-    if (FAILED(status = IWbemLocator_ConnectServer(
+    if (FAILED(status))
+        goto CleanupExit;
+
+    status = IWbemLocator_ConnectServer(
         wbemLocator,
         L"root\\CIMV2",
         NULL,
@@ -83,10 +117,10 @@ HRESULT PhpWmiProviderExecMethod(
         0,
         NULL,
         &wbemServices
-        )))
-    {
+        );
+
+    if (FAILED(status))
         goto CleanupExit;
-    }
 
     queryString = PhConcatStrings2(L"SELECT Namespace,Provider,User,__PATH FROM Msft_Providers WHERE HostProcessIdentifier = ", ProcessIdString);
 
@@ -194,6 +228,7 @@ HRESULT PhpQueryWmiProviderFileName(
     )
 {
     HRESULT status;
+    PVOID wbemproxDllBase = NULL;
     PPH_STRING fileName = NULL;
     PPH_STRING queryString = NULL;
     PPH_STRING clsidString = NULL;
@@ -203,16 +238,18 @@ HRESULT PhpQueryWmiProviderFileName(
     IWbemClassObject *wbemClassObject = NULL;
     ULONG count = 0;
 
-    if (FAILED(status = CoCreateInstance(
+    if (!(wbemproxDllBase = PhpGetWmiProviderDllBase()))
+        return ERROR_MOD_NOT_FOUND;
+
+    status = PhGetClassObjectDllBase(
+        wbemproxDllBase,
         &CLSID_WbemLocator,
-        0,
-        CLSCTX_INPROC_SERVER,
         &IID_IWbemLocator,
         &wbemLocator
-        )))
-    {
+        );
+
+    if (FAILED(status))
         goto CleanupExit;
-    }
 
     if (FAILED(status = IWbemLocator_ConnectServer(
         wbemLocator,
@@ -329,6 +366,7 @@ PPH_LIST PhpQueryWmiProviderHostProcess(
     )
 {
     HRESULT status;
+    PVOID wbemproxDllBase = NULL;
     PPH_LIST providerList = NULL;
     PPH_STRING queryString = NULL;
     IWbemLocator* wbemLocator = NULL;
@@ -336,18 +374,20 @@ PPH_LIST PhpQueryWmiProviderHostProcess(
     IEnumWbemClassObject* wbemEnumerator = NULL;
     IWbemClassObject *wbemClassObject;
 
-    if (FAILED(status = CoCreateInstance(
+    if (!(wbemproxDllBase = PhpGetWmiProviderDllBase()))
+        return NULL;
+
+    status = PhGetClassObjectDllBase(
+        wbemproxDllBase,
         &CLSID_WbemLocator,
-        0,
-        CLSCTX_INPROC_SERVER,
         &IID_IWbemLocator,
         &wbemLocator
-        )))
-    {
-        goto CleanupExit;
-    }
+        );
 
-    if (FAILED(status = IWbemLocator_ConnectServer(
+    if (FAILED(status))
+        goto CleanupExit;
+
+    status = IWbemLocator_ConnectServer(
         wbemLocator,
         L"root\\CIMV2",
         NULL,
@@ -357,10 +397,10 @@ PPH_LIST PhpQueryWmiProviderHostProcess(
         0,
         NULL,
         &wbemServices
-        )))
-    {
+        );
+
+    if (FAILED(status))
         goto CleanupExit;
-    }
 
     queryString = PhConcatStrings2(L"SELECT Namespace,Provider,User FROM Msft_Providers WHERE HostProcessIdentifier = ", ProcessItem->ProcessIdString);
 

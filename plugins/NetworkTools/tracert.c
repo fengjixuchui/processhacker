@@ -109,44 +109,28 @@ NTSTATUS TracertHostnameLookupCallback(
     )
 {
     PTRACERT_RESOLVE_WORKITEM workitem = Parameter;
-    BOOLEAN dnsLocalQuery = FALSE;
     PPH_STRING dnsHostNameString = NULL;
     PPH_STRING dnsReverseNameString = NULL;
     PDNS_RECORD dnsRecordList = NULL;
 
-    if (PhGetIntegerSetting(L"EnableNetworkResolveDoH"))
+    if (workitem->Type == PH_IPV4_NETWORK_TYPE)
     {
-        if (workitem->Type == PH_IPV4_NETWORK_TYPE)
+        IN_ADDR inAddr4 = ((PSOCKADDR_IN)&workitem->SocketAddress)->sin_addr;
+
+        if (IN4_IS_ADDR_UNSPECIFIED(&inAddr4))
         {
-            IN_ADDR inAddr4 = ((PSOCKADDR_IN)&workitem->SocketAddress)->sin_addr;
-
-            if (IN4_IS_ADDR_UNSPECIFIED(&inAddr4))
-            {
-                PhFree(workitem);
-                return STATUS_SUCCESS;
-            }
-
-            if (IN4_IS_ADDR_LOOPBACK(&inAddr4) ||
-                IN4_IS_ADDR_RFC1918(&inAddr4))
-            {
-                dnsLocalQuery = TRUE;
-            }
+            PhFree(workitem);
+            return STATUS_SUCCESS;
         }
-        else if (workitem->Type == PH_IPV6_NETWORK_TYPE)
+    }
+    else if (workitem->Type == PH_IPV6_NETWORK_TYPE)
+    {
+        IN6_ADDR inAddr6 = ((PSOCKADDR_IN6)&workitem->SocketAddress)->sin6_addr;
+
+        if (IN6_IS_ADDR_UNSPECIFIED(&inAddr6))
         {
-            IN6_ADDR inAddr6 = ((PSOCKADDR_IN6)&workitem->SocketAddress)->sin6_addr;
-
-            if (IN6_IS_ADDR_UNSPECIFIED(&inAddr6))
-            {
-                PhFree(workitem);
-                return STATUS_SUCCESS;
-            }
-
-            if (IN6_IS_ADDR_LOOPBACK(&inAddr6) ||
-                IN6_IS_ADDR_LINKLOCAL(&inAddr6))
-            {
-                dnsLocalQuery = TRUE;
-            }
+            PhFree(workitem);
+            return STATUS_SUCCESS;
         }
     }
 
@@ -156,28 +140,11 @@ NTSTATUS TracertHostnameLookupCallback(
         return STATUS_FAIL_CHECK;
     }
 
-    if (!dnsLocalQuery)
-    {
-        dnsRecordList = PhHttpDnsQuery(
-            NULL,
-            dnsReverseNameString->Buffer,
-            DNS_TYPE_PTR
-            );
-    }
-
-    if (!dnsRecordList)
-    {
-        DnsQuery(
-            dnsReverseNameString->Buffer,
-            DNS_TYPE_PTR,
-            DNS_QUERY_BYPASS_CACHE | DNS_QUERY_NO_HOSTS_FILE,
-            NULL,
-            &dnsRecordList,
-            NULL
-            );
-    }
-
-    if (dnsRecordList)
+    if (dnsRecordList = PhDnsQuery(
+        NULL,
+        dnsReverseNameString->Buffer,
+        DNS_TYPE_PTR
+        ))
     {
         PH_STRING_BUILDER stringBuilder;
 
@@ -196,7 +163,7 @@ NTSTATUS TracertHostnameLookupCallback(
 
         dnsHostNameString = PhFinalStringBuilderString(&stringBuilder);
 
-        DnsFree(dnsRecordList, DnsFreeRecordList);
+        PhDnsFree(dnsRecordList);
     }
 
     if (dnsHostNameString)

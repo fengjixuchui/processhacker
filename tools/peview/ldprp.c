@@ -35,6 +35,10 @@ PPH_STRING PvpGetPeGuardFlagsText(
     )
 {
     PH_STRING_BUILDER stringBuilder;
+    WCHAR pointer[PH_PTR_STR_LEN_1];
+
+    if (GuardFlags == 0)
+        return PhCreateString(L"0x0");
 
     PhInitializeStringBuilder(&stringBuilder, 10);
 
@@ -62,6 +66,9 @@ PPH_STRING PvpGetPeGuardFlagsText(
     if (PhEndsWithString2(stringBuilder.String, L", ", FALSE))
         PhRemoveEndStringBuilder(&stringBuilder, 2);
 
+    PhPrintPointer(pointer, UlongToPtr(GuardFlags));
+    PhAppendFormatStringBuilder(&stringBuilder, L" (%s)", pointer);
+
     return PhFinalStringBuilderString(&stringBuilder);
 }
 
@@ -70,6 +77,10 @@ PPH_STRING PvpGetPeDependentLoadFlagsText(
     )
 {
     PH_STRING_BUILDER stringBuilder;
+    WCHAR pointer[PH_PTR_STR_LEN_1];
+
+    if (DependentLoadFlags == 0)
+        return PhCreateString(L"0x0");
 
     PhInitializeStringBuilder(&stringBuilder, 10);
 
@@ -108,6 +119,9 @@ PPH_STRING PvpGetPeDependentLoadFlagsText(
 
     if (PhEndsWithString2(stringBuilder.String, L", ", FALSE))
         PhRemoveEndStringBuilder(&stringBuilder, 2);
+
+    PhPrintPointer(pointer, UlongToPtr(DependentLoadFlags));
+    PhAppendFormatStringBuilder(&stringBuilder, L" (%s)", pointer);
 
     return PhFinalStringBuilderString(&stringBuilder);
 }
@@ -301,7 +315,7 @@ INT_PTR CALLBACK PvpPeLoadConfigDlgProc(
                 ADD_VALUE(L"Process affinity mask", PhaFormatString(L"0x%Ix", (Config)->ProcessAffinityMask)->Buffer); \
                 ADD_VALUE(L"Process heap flags", PhaFormatString(L"0x%Ix", (Config)->ProcessHeapFlags)->Buffer); \
                 ADD_VALUE(L"CSD version", PhaFormatString(L"%u", (Config)->CSDVersion)->Buffer); \
-                ADD_VALUE(L"Dependent load flags", PhaFormatString(L"%s (0x%x)", PH_AUTO_T(PH_STRING, PvpGetPeDependentLoadFlagsText((Config)->DependentLoadFlags))->Buffer, (Config)->DependentLoadFlags)->Buffer); \
+                ADD_VALUE(L"Dependent load flags", PH_AUTO_T(PH_STRING, PvpGetPeDependentLoadFlagsText((Config)->DependentLoadFlags))->Buffer); \
                 ADD_VALUE(L"Edit list", PhaFormatString(L"0x%Ix", (Config)->EditList)->Buffer); \
                 ADD_VALUE(L"Security cookie", PhaFormatString(L"0x%Ix", (Config)->SecurityCookie)->Buffer); \
                 ADD_VALUE(L"SEH handler table", PhaFormatString(L"0x%Ix", (Config)->SEHandlerTable)->Buffer); \
@@ -309,7 +323,7 @@ INT_PTR CALLBACK PvpPeLoadConfigDlgProc(
                 \
                 if (RTL_CONTAINS_FIELD((Config), (Config)->Size, GuardCFCheckFunctionPointer)) \
                 { \
-                    ADD_VALUE(L"CFG GuardFlags", PhaFormatString(L"%s (0x%x)", PH_AUTO_T(PH_STRING, PvpGetPeGuardFlagsText((Config)->GuardFlags))->Buffer, (Config)->GuardFlags)->Buffer); \
+                    ADD_VALUE(L"CFG GuardFlags", PH_AUTO_T(PH_STRING, PvpGetPeGuardFlagsText((Config)->GuardFlags))->Buffer); \
                     ADD_VALUE(L"CFG Check Function pointer", PhaFormatString(L"0x%Ix", (Config)->GuardCFCheckFunctionPointer)->Buffer); \
                     ADD_VALUE(L"CFG Check Dispatch pointer", PhaFormatString(L"0x%Ix", (Config)->GuardCFDispatchFunctionPointer)->Buffer); \
                     ADD_VALUE(L"CFG Function table", PhaFormatString(L"0x%Ix", (Config)->GuardCFFunctionTable)->Buffer); \

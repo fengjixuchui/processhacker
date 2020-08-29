@@ -36,7 +36,8 @@ typedef struct _PH_MODULE_ITEM
     ULONG ImageTimeDateStamp;
     USHORT ImageCharacteristics;
     USHORT ImageDllCharacteristics;
-    ULONG ImageDllCharaceristicsEx;
+    ULONG ImageDllCharacteristicsEx;
+    ULONG GuardFlags;
 
     LARGE_INTEGER LoadTime;
     LARGE_INTEGER FileLastWriteTime;

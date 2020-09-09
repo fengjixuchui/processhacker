@@ -47,7 +47,11 @@ PVOID PhpImportProcedure(
         {
             if (procedure = PhGetDllBaseProcedureAddress(module, ProcedureName, 0))
             {
+#if (PHNT_VERSION >= PHNT_WIN7)
                 *Cookie = NtGetTickCount();
+#else
+                *Cookie = GetTickCount();
+#endif
                 *Cache = (PVOID)((ULONG_PTR)procedure ^ (ULONG_PTR)*Cookie);
             }
         }
@@ -94,6 +98,7 @@ PH_DEFINE_IMPORT(L"dnsapi.dll", DnsExtractRecordsFromMessage_W);
 PH_DEFINE_IMPORT(L"dnsapi.dll", DnsWriteQuestionToBuffer_W);
 PH_DEFINE_IMPORT(L"dnsapi.dll", DnsFree);
 
+PH_DEFINE_IMPORT(L"shlwapi.dll", SHAutoComplete);
 PH_DEFINE_IMPORT(L"shell32.dll", SHGetFolderPathW);
 PH_DEFINE_IMPORT(L"shell32.dll", SHGetFileInfoW);
 

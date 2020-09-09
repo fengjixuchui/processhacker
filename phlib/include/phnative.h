@@ -72,7 +72,7 @@ NTAPI
 PhOpenProcess(
     _Out_ PHANDLE ProcessHandle,
     _In_ ACCESS_MASK DesiredAccess,
-    _In_ HANDLE ProcessId
+    _In_opt_ HANDLE ProcessId
     );
 
 PHLIBAPI
@@ -155,6 +155,7 @@ PhGetSecurityDescriptorAsString(
     _In_ PSECURITY_DESCRIPTOR SecurityDescriptor
     );
 
+_Success_(return)
 PHLIBAPI
 BOOLEAN
 NTAPI
@@ -1005,7 +1006,7 @@ PHLIBAPI
 NTSTATUS
 NTAPI
 PhGetProcessImageFileNameByProcessId(
-    _In_ HANDLE ProcessId,
+    _In_opt_ HANDLE ProcessId,
     _Out_ PPH_STRING *FileName
     );
 

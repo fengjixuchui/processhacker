@@ -454,8 +454,6 @@ NTSTATUS PhDelayExecution(
  * is guaranteed to be aligned at MEMORY_ALLOCATION_ALIGNMENT bytes.
  */
 _May_raise_
-_Check_return_
-_Ret_notnull_
 _Post_writable_byte_size_(Size)
 PVOID PhAllocate(
     _In_ SIZE_T Size
@@ -471,6 +469,9 @@ PVOID PhAllocate(
  *
  * \return A pointer to the allocated block of memory, or NULL if the block could not be allocated.
  */
+_Must_inspect_result_
+_Ret_maybenull_
+_Post_writable_byte_size_(Size)
 PVOID PhAllocateSafe(
     _In_ SIZE_T Size
     )
@@ -486,6 +487,9 @@ PVOID PhAllocateSafe(
  *
  * \return A pointer to the allocated block of memory, or NULL if the block could not be allocated.
  */
+_Must_inspect_result_
+_Ret_maybenull_
+_Post_writable_byte_size_(Size)
 PVOID PhAllocateExSafe(
     _In_ SIZE_T Size,
     _In_ ULONG Flags
@@ -592,7 +596,7 @@ PVOID PhAllocatePage(
  * \param Memory A pointer to a block of memory.
  */
 VOID PhFreePage(
-    _Post_invalid_ PVOID Memory
+    _In_ _Post_invalid_ PVOID Memory
     )
 {
     SIZE_T size;
@@ -763,7 +767,7 @@ BOOLEAN PhCopyBytesZ(
     BOOLEAN copied;
 
     // Determine the length of the input string.
-
+    
     if (InputCount != -1)
     {
         i = 0;
@@ -2547,6 +2551,37 @@ PPH_BYTES PhCreateBytesEx(
     return bytes;
 }
 
+PPH_BYTES PhFormatBytes_V(
+    _In_ _Printf_format_string_ PSTR Format,
+    _In_ va_list ArgPtr
+    )
+{
+    PPH_BYTES string;
+    INT length;
+
+    length = _vscprintf(Format, ArgPtr);
+
+    if (length == -1)
+        return NULL;
+
+    string = PhCreateBytesEx(NULL, length * sizeof(CHAR));
+    _vsnprintf(string->Buffer, length, Format, ArgPtr);
+
+    return string;
+}
+
+PPH_BYTES PhFormatBytes(
+    _In_ _Printf_format_string_ PSTR Format,
+    ...
+    )
+{
+    va_list argptr;
+
+    va_start(argptr, Format);
+
+    return PhFormatBytes_V(Format, argptr);
+}
+
 BOOLEAN PhWriteUnicodeDecoder(
     _Inout_ PPH_UNICODE_DECODER Decoder,
     _In_ ULONG CodeUnit
@@ -3184,7 +3219,24 @@ BOOLEAN PhConvertUtf8ToUtf16Size(
     _In_ SIZE_T BytesInUtf8String
     )
 {
-#ifdef PH_UTF_NATIVE
+#if (PHNT_VERSION >= PHNT_WIN7)
+    ULONG bytesInUtf16String = 0;
+
+    if (NT_SUCCESS(RtlUTF8ToUnicodeN(
+        NULL,
+        0,
+        &bytesInUtf16String,
+        Utf8String,
+        (ULONG)BytesInUtf8String
+        )))
+    {
+        if (BytesInUtf16String)
+            *BytesInUtf16String = bytesInUtf16String;
+        return TRUE;
+    }
+
+    return FALSE;
+#else
     BOOLEAN result;
     PH_UNICODE_DECODER decoder;
     PCH in;
@@ -3217,23 +3269,6 @@ BOOLEAN PhConvertUtf8ToUtf16Size(
     *BytesInUtf16String = bytesInUtf16String;
 
     return result;
-#else
-    ULONG bytesInUtf16String = 0;
-
-    if (NT_SUCCESS(RtlUTF8ToUnicodeN(
-        NULL,
-        0,
-        &bytesInUtf16String,
-        Utf8String,
-        (ULONG)BytesInUtf8String
-        )))
-    {
-        if (BytesInUtf16String)
-            *BytesInUtf16String = bytesInUtf16String;
-        return TRUE;
-    }
-
-    return FALSE;
 #endif
 }
 
@@ -3246,7 +3281,24 @@ BOOLEAN PhConvertUtf8ToUtf16Buffer(
     _In_ SIZE_T BytesInUtf8String
     )
 {
-#ifdef PH_UTF_NATIVE
+#if (PHNT_VERSION >= PHNT_WIN7)
+    ULONG bytesInUtf16String = 0;
+
+    if (NT_SUCCESS(RtlUTF8ToUnicodeN(
+        Utf16String,
+        (ULONG)MaxBytesInUtf16String,
+        &bytesInUtf16String,
+        Utf8String,
+        (ULONG)BytesInUtf8String
+        )))
+    {
+        if (BytesInUtf16String)
+            *BytesInUtf16String = bytesInUtf16String;
+        return TRUE;
+    }
+
+    return FALSE;
+#else
     BOOLEAN result;
     PH_UNICODE_DECODER decoder;
     PCH in;
@@ -3303,23 +3355,6 @@ BOOLEAN PhConvertUtf8ToUtf16Buffer(
         *BytesInUtf16String = bytesInUtf16String;
 
     return result;
-#else
-    ULONG bytesInUtf16String = 0;
-
-    if (NT_SUCCESS(RtlUTF8ToUnicodeN(
-        Utf16String,
-        (ULONG)MaxBytesInUtf16String,
-        &bytesInUtf16String,
-        Utf8String,
-        (ULONG)BytesInUtf8String
-        )))
-    {
-        if (BytesInUtf16String)
-            *BytesInUtf16String = bytesInUtf16String;
-        return TRUE;
-    }
-
-    return FALSE;
 #endif
 }
 
@@ -3374,7 +3409,24 @@ BOOLEAN PhConvertUtf16ToUtf8Size(
     _In_ SIZE_T BytesInUtf16String
     )
 {
-#ifdef PH_UTF_NATIVE
+#if (PHNT_VERSION >= PHNT_WIN7)
+    ULONG bytesInUtf8String = 0;
+
+    if (NT_SUCCESS(RtlUnicodeToUTF8N(
+        NULL,
+        0,
+        &bytesInUtf8String,
+        Utf16String,
+        (ULONG)BytesInUtf16String
+        )))
+    {
+        if (BytesInUtf8String)
+            *BytesInUtf8String = bytesInUtf8String;
+        return TRUE;
+    }
+
+    return FALSE;
+#else
     BOOLEAN result;
     PH_UNICODE_DECODER decoder;
     PWCH in;
@@ -3407,23 +3459,6 @@ BOOLEAN PhConvertUtf16ToUtf8Size(
     *BytesInUtf8String = bytesInUtf8String;
 
     return result;
-#else
-    ULONG bytesInUtf8String = 0;
-
-    if (NT_SUCCESS(RtlUnicodeToUTF8N(
-        NULL,
-        0,
-        &bytesInUtf8String,
-        Utf16String,
-        (ULONG)BytesInUtf16String
-        )))
-    {
-        if (BytesInUtf8String)
-            *BytesInUtf8String = bytesInUtf8String;
-        return TRUE;
-    }
-
-    return FALSE;
 #endif
 }
 
@@ -3436,7 +3471,24 @@ BOOLEAN PhConvertUtf16ToUtf8Buffer(
     _In_ SIZE_T BytesInUtf16String
     )
 {
-#ifdef PH_UTF_NATIVE
+#if (PHNT_VERSION >= PHNT_WIN7)
+    ULONG bytesInUtf8String = 0;
+
+    if (NT_SUCCESS(RtlUnicodeToUTF8N(
+        Utf8String,
+        (ULONG)MaxBytesInUtf8String,
+        &bytesInUtf8String,
+        Utf16String,
+        (ULONG)BytesInUtf16String
+        )))
+    {
+        if (BytesInUtf8String)
+            *BytesInUtf8String = bytesInUtf8String;
+        return TRUE;
+    }
+
+    return FALSE;
+#else
     BOOLEAN result;
     PH_UNICODE_DECODER decoder;
     PWCH in;
@@ -3497,23 +3549,6 @@ BOOLEAN PhConvertUtf16ToUtf8Buffer(
         *BytesInUtf8String = bytesInUtf8String;
 
     return result;
-#else
-    ULONG bytesInUtf8String = 0;
-
-    if (NT_SUCCESS(RtlUnicodeToUTF8N(
-        Utf8String,
-        (ULONG)MaxBytesInUtf8String,
-        &bytesInUtf8String,
-        Utf16String,
-        (ULONG)BytesInUtf16String
-        )))
-    {
-        if (BytesInUtf8String)
-            *BytesInUtf8String = bytesInUtf8String;
-        return TRUE;
-    }
-
-    return FALSE;
 #endif
 }
 

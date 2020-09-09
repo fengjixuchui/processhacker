@@ -130,14 +130,14 @@ INT WINAPI wWinMain(
 
     if (PhStartupParameters.RunAsServiceMode)
     {
-        RtlExitUserProcess(PhRunAsServiceStart(PhStartupParameters.RunAsServiceMode));
+        PhExitApplication(PhRunAsServiceStart(PhStartupParameters.RunAsServiceMode));
     }
 
     if (PhStartupParameters.CommandMode &&
         PhStartupParameters.CommandType &&
         PhStartupParameters.CommandAction)
     {
-        RtlExitUserProcess(PhCommandModeStart());
+        PhExitApplication(PhCommandModeStart());
     }
 
     PhSettingsInitialization();
@@ -160,13 +160,12 @@ INT WINAPI wWinMain(
     {
         if (!PhGetOwnTokenAttributes().Elevated)
         {
-            AllowSetForegroundWindow(ASFW_ANY); // TODO: This rarely works. (dmex)
+            AllowSetForegroundWindow(ASFW_ANY);
 
             if (SUCCEEDED(PhRunAsAdminTask(L"ProcessHackerTaskAdmin")))
             {
-                PhActivatePreviousInstance(); // TODO: This rarely works. (dmex)
-
-                RtlExitUserProcess(STATUS_SUCCESS);
+                PhActivatePreviousInstance();
+                PhExitApplication(STATUS_SUCCESS);
             }
         }
     }
@@ -204,7 +203,7 @@ INT WINAPI wWinMain(
     if (PhStartupParameters.ShowOptions)
     {
         PhShowOptionsDialog(PhStartupParameters.WindowHandle);
-        RtlExitUserProcess(STATUS_SUCCESS);
+        PhExitApplication(STATUS_SUCCESS);
     }
 
     if (PhPluginsEnabled && !PhStartupParameters.NoPlugins)
@@ -217,8 +216,6 @@ INT WINAPI wWinMain(
     {
         PROCESS_MITIGATION_POLICY_INFORMATION policyInfo;
 
-        // Note: The PhInitializeMitigationPolicy function enables the other mitigation policies.
-        // However, we can only enable the ProcessSignaturePolicy after loading plugins.
         policyInfo.Policy = ProcessSignaturePolicy;
         policyInfo.SignaturePolicy.Flags = 0;
         policyInfo.SignaturePolicy.MicrosoftSignedOnly = TRUE;
@@ -235,7 +232,7 @@ INT WINAPI wWinMain(
         PostMessage(NULL, WM_NULL, 0, 0);
         GetMessage(&message, NULL, 0, 0);
 
-        RtlExitUserProcess(PhSvcMain(NULL, NULL));
+        PhExitApplication(PhSvcMain(NULL, NULL));
     }
 
 #ifndef DEBUG
@@ -247,7 +244,7 @@ INT WINAPI wWinMain(
             L"Most features will not work correctly.\n\n"
             L"Please run the 64-bit version of Process Hacker instead."
             );
-        RtlExitUserProcess(STATUS_IMAGE_SUBSYSTEM_NOT_PRESENT);
+        PhExitApplication(STATUS_IMAGE_SUBSYSTEM_NOT_PRESENT);
     }
 #endif
 
@@ -273,7 +270,7 @@ INT WINAPI wWinMain(
     PhDrainAutoPool(&BaseAutoPool);
 
     result = PhMainMessageLoop();
-    RtlExitUserProcess(result);
+    PhExitApplication(result);
 }
 
 LONG PhMainMessageLoop(
@@ -484,7 +481,7 @@ static BOOLEAN NTAPI PhpPreviousInstancesCallback(
             if (result == PH_ACTIVATE_REPLY)
             {
                 SetForegroundWindow(hwnd);
-                RtlExitUserProcess(STATUS_SUCCESS);
+                PhExitApplication(STATUS_SUCCESS);
             }
         }
 
@@ -611,7 +608,7 @@ BOOLEAN PhInitializeRestartPolicy(
 #include <symprv.h>
 #include <minidumpapiset.h>
 
-static ULONG CALLBACK PhpUnhandledExceptionCallback(
+ULONG CALLBACK PhpUnhandledExceptionCallback(
     _In_ PEXCEPTION_POINTERS ExceptionInfo
     )
 {
@@ -725,7 +722,7 @@ static ULONG CALLBACK PhpUnhandledExceptionCallback(
         }
     }
 
-    RtlExitUserProcess(ExceptionInfo->ExceptionRecord->ExceptionCode);
+    PhExitApplication(ExceptionInfo->ExceptionRecord->ExceptionCode);
 
     PhDereferenceObject(message);
     PhDereferenceObject(errorMessage);
@@ -747,9 +744,7 @@ BOOLEAN PhInitializeExceptionPolicy(
         PhSetProcessErrorMode(NtCurrentProcess(), errorMode);
     }
 
-    // NOTE: We really shouldn't be using this function since it can be
-    // preempted by the Win32 SetUnhandledExceptionFilter function. (dmex)
-    RtlSetUnhandledExceptionFilter(PhpUnhandledExceptionCallback);
+    SetUnhandledExceptionFilter(PhpUnhandledExceptionCallback);
 #endif
 
     return TRUE;
@@ -812,6 +807,7 @@ BOOLEAN PhInitializeMitigationPolicy(
     VOID
     )
 {
+#if (PHNT_VERSION >= PHNT_WIN7)
 #ifndef DEBUG
 #define DEFAULT_MITIGATION_POLICY_FLAGS \
     (PROCESS_CREATION_MITIGATION_POLICY_HEAP_TERMINATE_ALWAYS_ON | \
@@ -916,6 +912,10 @@ CleanupExit:
 #else
     return TRUE;
 #endif
+
+#else
+    return TRUE;
+#endif
 }
 
 NTSTATUS PhpReadSignature(
@@ -930,16 +930,34 @@ NTSTATUS PhpReadSignature(
     ULONG bufferSize;
     IO_STATUS_BLOCK iosb;
 
-    if (!NT_SUCCESS(status = PhCreateFileWin32(&fileHandle, FileName, FILE_GENERIC_READ, FILE_ATTRIBUTE_NORMAL,
-        FILE_SHARE_READ, FILE_OPEN, FILE_NON_DIRECTORY_FILE | FILE_SYNCHRONOUS_IO_NONALERT)))
-    {
+    status = PhCreateFileWin32(
+        &fileHandle,
+        FileName,
+        FILE_GENERIC_READ,
+        FILE_ATTRIBUTE_NORMAL,
+        FILE_SHARE_READ,
+        FILE_OPEN,
+        FILE_NON_DIRECTORY_FILE | FILE_SYNCHRONOUS_IO_NONALERT
+        );
+
+    if (!NT_SUCCESS(status))
         return status;
-    }
 
     bufferSize = 1024;
     signature = PhAllocate(bufferSize);
 
-    status = NtReadFile(fileHandle, NULL, NULL, NULL, &iosb, signature, bufferSize, NULL, NULL);
+    status = NtReadFile(
+        fileHandle,
+        NULL,
+        NULL,
+        NULL,
+        &iosb,
+        signature,
+        bufferSize,
+        NULL,
+        NULL
+        );
+
     NtClose(fileHandle);
 
     if (NT_SUCCESS(status))
@@ -1478,7 +1496,7 @@ VOID PhpProcessStartupParameters(
             );
 
         if (PhStartupParameters.Help)
-            RtlExitUserProcess(STATUS_SUCCESS);
+            PhExitApplication(STATUS_SUCCESS);
     }
 
     if (PhStartupParameters.InstallKph)
@@ -1502,7 +1520,7 @@ VOID PhpProcessStartupParameters(
         if (!NT_SUCCESS(status) && !PhStartupParameters.Silent)
             PhShowStatus(NULL, L"Unable to install KProcessHacker", status, 0);
 
-        RtlExitUserProcess(status);
+        PhExitApplication(status);
     }
 
     if (PhStartupParameters.UninstallKph)
@@ -1514,7 +1532,7 @@ VOID PhpProcessStartupParameters(
         if (!NT_SUCCESS(status) && !PhStartupParameters.Silent)
             PhShowStatus(NULL, L"Unable to uninstall KProcessHacker", status, 0);
 
-        RtlExitUserProcess(status);
+        PhExitApplication(status);
     }
 
     if (PhStartupParameters.Elevate && !PhGetOwnTokenAttributes().Elevated)
@@ -1528,7 +1546,7 @@ VOID PhpProcessStartupParameters(
             0,
             NULL
             );
-        RtlExitUserProcess(STATUS_SUCCESS);
+        PhExitApplication(STATUS_SUCCESS);
     }
 
     if (PhStartupParameters.Debug)

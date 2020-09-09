@@ -15,12 +15,6 @@ PHLIBAPI extern RTL_OSVERSIONINFOEXW PhOsVersion;
 PHLIBAPI extern SYSTEM_BASIC_INFORMATION PhSystemBasicInformation;
 PHLIBAPI extern ULONG WindowsVersion;
 
-PHLIBAPI extern ACCESS_MASK ProcessQueryAccess;
-PHLIBAPI extern ACCESS_MASK ProcessAllAccess;
-PHLIBAPI extern ACCESS_MASK ThreadQueryAccess;
-PHLIBAPI extern ACCESS_MASK ThreadSetAccess;
-PHLIBAPI extern ACCESS_MASK ThreadAllAccess;
-
 #define WINDOWS_ANCIENT 0
 #define WINDOWS_XP 51
 #define WINDOWS_VISTA 60
@@ -87,6 +81,21 @@ NTAPI
 PhIsExecutingInWow64(
     VOID
     );
+
+// 
+DECLSPEC_NORETURN
+FORCEINLINE
+VOID
+PhExitApplication(
+    _In_opt_ NTSTATUS Status
+    )
+{
+#if (PHNT_VERSION >= PHNT_WIN7)
+    RtlExitUserProcess(Status);
+#else
+    ExitProcess(Status);
+#endif
+}
 
 #ifdef __cplusplus
 }

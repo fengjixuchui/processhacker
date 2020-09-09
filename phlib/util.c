@@ -256,6 +256,7 @@ PPH_STRING PhGetUserDefaultLocaleName(
     VOID
     )
 {
+#if (PHNT_VERSION >= PHNT_WIN7)
     UNICODE_STRING localeNameUs;
     WCHAR localeName[LOCALE_NAME_MAX_LENGTH] = { UNICODE_NULL };
 
@@ -265,7 +266,7 @@ PPH_STRING PhGetUserDefaultLocaleName(
     {
         return PhCreateStringFromUnicodeString(&localeNameUs);
     }
-
+#endif
     return NULL;
 }
 
@@ -274,6 +275,7 @@ PPH_STRING PhLCIDToLocaleName(
     _In_ LCID lcid
     )
 {
+#if (PHNT_VERSION >= PHNT_WIN7)
     UNICODE_STRING localeNameUs;
     WCHAR localeName[LOCALE_NAME_MAX_LENGTH] = { UNICODE_NULL };
 
@@ -293,7 +295,7 @@ PPH_STRING PhLCIDToLocaleName(
             return PhCreateStringFromUnicodeString(&localeNameUs);
         }
     }
-
+#endif
     return NULL;
 }
 
@@ -1703,7 +1705,7 @@ PVOID PhGetFileVersionInfo(
 
     libraryModule = LoadLibraryEx(
         FileName,
-        NULL, 
+        NULL,
         LOAD_LIBRARY_AS_DATAFILE | LOAD_LIBRARY_AS_IMAGE_RESOURCE
         );
 
@@ -1711,10 +1713,10 @@ PVOID PhGetFileVersionInfo(
         return NULL;
 
     if (PhLoadResource(
-        libraryModule, 
-        MAKEINTRESOURCE(VS_VERSION_INFO), 
-        VS_FILE_INFO, 
-        NULL, 
+        libraryModule,
+        MAKEINTRESOURCE(VS_VERSION_INFO),
+        VS_FILE_INFO,
+        NULL,
         &versionInfo
         ))
     {
@@ -1963,6 +1965,25 @@ VOID PhpGetImageVersionInfoFields(
     ImageVersionInfo->ProductName = PhGetFileVersionInfoString2(VersionInfo, LangCodePage, L"ProductName");
 }
 
+PPH_STRING PhpGetImageVersionVersionString(
+    _In_ PVOID VersionInfo,
+    _In_ ULONG LangCodePage
+    )
+{
+    PPH_STRING versionString;
+
+    if (versionString = PhGetFileVersionInfoString2(VersionInfo, LangCodePage, L"FileVersion"))
+        return versionString;
+    if (versionString = PhGetFileVersionInfoString2(VersionInfo, (LangCodePage & 0xffff0000) + 1252, L"FileVersion"))
+        return versionString;
+    if (versionString = PhGetFileVersionInfoString2(VersionInfo, (MAKELANGID(LANG_ENGLISH, SUBLANG_ENGLISH_US) << 16) + 1252, L"FileVersion"))
+        return versionString;
+    if (versionString = PhGetFileVersionInfoString2(VersionInfo, (MAKELANGID(LANG_ENGLISH, SUBLANG_ENGLISH_US) << 16) + 0, L"FileVersion"))
+        return versionString;
+
+    return NULL;
+}
+
 /**
  * Initializes a structure with version information.
  *
@@ -1976,6 +1997,7 @@ BOOLEAN PhInitializeImageVersionInfo(
     )
 {
     PVOID versionInfo;
+    PPH_STRING versionString;
     ULONG langCodePage;
     VS_FIXEDFILEINFO *rootBlock;
     ULONG rootBlockLength;
@@ -2004,22 +2026,29 @@ BOOLEAN PhInitializeImageVersionInfo(
         }
     }
 
-    // The version information is language-independent and must be read from the root block.
-    if (PhGetFileVersionInfoValue(versionInfo, L"\\", &rootBlock, &rootBlockLength) && rootBlockLength != 0)
+    if (versionString = PhpGetImageVersionVersionString(versionInfo, langCodePage))
     {
-        PhInitFormatU(&fileVersionFormat[0], HIWORD(rootBlock->dwFileVersionMS));
-        PhInitFormatC(&fileVersionFormat[1], L'.');
-        PhInitFormatU(&fileVersionFormat[2], LOWORD(rootBlock->dwFileVersionMS));
-        PhInitFormatC(&fileVersionFormat[3], L'.');
-        PhInitFormatU(&fileVersionFormat[4], HIWORD(rootBlock->dwFileVersionLS));
-        PhInitFormatC(&fileVersionFormat[5], L'.');
-        PhInitFormatU(&fileVersionFormat[6], LOWORD(rootBlock->dwFileVersionLS));
-
-        ImageVersionInfo->FileVersion = PhFormat(fileVersionFormat, 7, 64);
+        ImageVersionInfo->FileVersion = versionString;
     }
     else
     {
-        ImageVersionInfo->FileVersion = NULL;
+        // The version information is language-independent and must be read from the root block.
+        if (PhGetFileVersionInfoValue(versionInfo, L"\\", &rootBlock, &rootBlockLength) && rootBlockLength != 0)
+        {
+            PhInitFormatU(&fileVersionFormat[0], HIWORD(rootBlock->dwFileVersionMS));
+            PhInitFormatC(&fileVersionFormat[1], L'.');
+            PhInitFormatU(&fileVersionFormat[2], LOWORD(rootBlock->dwFileVersionMS));
+            PhInitFormatC(&fileVersionFormat[3], L'.');
+            PhInitFormatU(&fileVersionFormat[4], HIWORD(rootBlock->dwFileVersionLS));
+            PhInitFormatC(&fileVersionFormat[5], L'.');
+            PhInitFormatU(&fileVersionFormat[6], LOWORD(rootBlock->dwFileVersionLS));
+
+            ImageVersionInfo->FileVersion = PhFormat(fileVersionFormat, RTL_NUMBER_OF(fileVersionFormat), 64);
+        }
+        else
+        {
+            ImageVersionInfo->FileVersion = NULL;
+        }
     }
 
     PhFree(versionInfo);
@@ -2302,9 +2331,45 @@ PPH_STRING PhGetFullPath(
     )
 {
     PPH_STRING fullPath;
+    ULONG bufferSize;
+    ULONG returnLength;
+    PWSTR filePart;
 
-    if (!NT_SUCCESS(PhGetFullPathEx(FileName, IndexOfFileName, &fullPath)))
+    bufferSize = 0x80;
+    fullPath = PhCreateStringEx(NULL, bufferSize * 2);
+
+    returnLength = RtlGetFullPathName_U(FileName, bufferSize, fullPath->Buffer, &filePart);
+
+    if (returnLength > bufferSize)
+    {
+        PhDereferenceObject(fullPath);
+        bufferSize = returnLength;
+        fullPath = PhCreateStringEx(NULL, bufferSize * 2);
+
+        returnLength = RtlGetFullPathName_U(FileName, bufferSize, fullPath->Buffer, &filePart);
+    }
+
+    if (returnLength == 0)
+    {
+        PhDereferenceObject(fullPath);
         return NULL;
+    }
+
+    PhTrimToNullTerminatorString(fullPath);
+
+    if (IndexOfFileName)
+    {
+        if (filePart)
+        {
+            // The path points to a file.
+            *IndexOfFileName = (ULONG)(filePart - fullPath->Buffer);
+        }
+        else
+        {
+            // The path points to a directory.
+            *IndexOfFileName = -1;
+        }
+    }
 
     return fullPath;
 }
@@ -2315,10 +2380,11 @@ NTSTATUS PhGetFullPathEx(
     _Out_ PPH_STRING *FullPath
     )
 {
+#if (PHNT_VERSION >= PHNT_WIN7)
     NTSTATUS status;
     PPH_STRING fullPath;
     ULONG bufferSize;
-    ULONG returnLength;
+    ULONG returnLength = 0;
     PWSTR filePart;
 
     bufferSize = 0x80;
@@ -2372,6 +2438,17 @@ NTSTATUS PhGetFullPathEx(
     *FullPath = fullPath;
 
     return status;
+#else
+    PPH_STRING fullPath;
+
+    if (fullPath = PhGetFullPath(FileName, IndexOfFileName))
+    {
+        *FullPath = fullPath;
+        return STATUS_SUCCESS;
+    }
+
+    return STATUS_UNSUCCESSFUL;
+#endif
 }
 
 /**
@@ -2693,7 +2770,11 @@ NTSTATUS PhWaitForMultipleObjectsAndPump(
     ULONG64 currentTickCount;
     ULONG64 currentTimeout;
 
+#if (PHNT_VERSION >= PHNT_WIN7)
     startTickCount = NtGetTickCount64();
+#else
+    startTickCount = GetTickCount();
+#endif
     currentTimeout = Timeout;
 
     while (TRUE)
@@ -2734,7 +2815,11 @@ NTSTATUS PhWaitForMultipleObjectsAndPump(
 
         if (Timeout != INFINITE)
         {
+#if (PHNT_VERSION >= PHNT_WIN7)
             currentTickCount = NtGetTickCount64();
+#else
+            currentTickCount = GetTickCount();
+#endif
             currentTimeout = Timeout - (currentTickCount - startTickCount);
 
             if ((LONG64)currentTimeout < 0)
@@ -2789,6 +2874,7 @@ NTSTATUS PhCreateProcess(
     PUNICODE_STRING windowTitle;
     PUNICODE_STRING desktopInfo;
 
+#if (PHNT_VERSION >= PHNT_WIN7)
     if (!NT_SUCCESS(status = RtlDosPathNameToNtPathName_U_WithStatus(
         FileName,
         &fileName,
@@ -2796,6 +2882,10 @@ NTSTATUS PhCreateProcess(
         NULL
         )))
         return status;
+#else
+    if (!RtlDosPathNameToNtPathName_U(FileName, &fileName, NULL, NULL))
+        return STATUS_UNSUCCESSFUL;
+#endif
 
     if (CommandLine)
     {
@@ -3620,14 +3710,14 @@ NTSTATUS PhFilterTokenForLimitedUser(
 
             newDaclLength = sizeof(ACL) + FIELD_OFFSET(ACCESS_ALLOWED_ACE, SidStart) + RtlLengthSid(currentUser->User.Sid);
 
-            if (currentDaclPresent)
+            if (currentDaclPresent && currentDacl)
                 newDaclLength += currentDacl->AclSize - sizeof(ACL);
 
             newDacl = PhAllocate(newDaclLength);
             RtlCreateAcl(newDacl, newDaclLength, ACL_REVISION);
 
             // Add the existing DACL entries.
-            if (currentDaclPresent)
+            if (currentDaclPresent && currentDacl)
             {
                 for (i = 0; i < currentDacl->AceCount; i++)
                 {
@@ -5717,6 +5807,81 @@ NTSTATUS PhAccessResource(
     }
 
     return STATUS_SUCCESS;
+}
+
+NTSTATUS PhLoadLibraryAsImageResource(
+    _In_ PWSTR FileName,
+    _Out_ PVOID* DllBase
+    )
+{
+    NTSTATUS status;
+    HANDLE fileHandle;
+    HANDLE sectionHandle;
+    PVOID imageBaseAddress;
+    SIZE_T imageBaseLength;
+
+    status = PhCreateFileWin32(
+        &fileHandle,
+        FileName,
+        FILE_READ_DATA | SYNCHRONIZE,
+        FILE_ATTRIBUTE_NORMAL,
+        FILE_SHARE_READ | FILE_SHARE_DELETE,
+        FILE_OPEN,
+        FILE_NON_DIRECTORY_FILE | FILE_SYNCHRONOUS_IO_NONALERT
+        );
+
+    if (!NT_SUCCESS(status))
+        return status;
+
+    status = NtCreateSection(
+        &sectionHandle,
+        SECTION_QUERY | SECTION_MAP_READ,
+        NULL,
+        NULL,
+        PAGE_READONLY,
+        SEC_IMAGE | SEC_NOCACHE,
+        fileHandle
+        );
+
+    NtClose(fileHandle);
+
+    if (!NT_SUCCESS(status))
+        return status;
+
+    imageBaseAddress = NULL;
+    imageBaseLength = 0;
+
+    status = NtMapViewOfSection(
+        sectionHandle,
+        NtCurrentProcess(),
+        &imageBaseAddress,
+        0,
+        0,
+        NULL,
+        &imageBaseLength,
+        ViewShare,
+        0,
+        PAGE_READONLY
+        );
+
+    NtClose(sectionHandle);
+
+    if (NT_SUCCESS(status))
+    {
+        if (DllBase)
+        {
+            *DllBase = imageBaseAddress;
+        }
+    }
+
+    return status;
+}
+
+VOID PhFreeLibraryAsImageResource(
+    _In_ PVOID DllBase
+    )
+{
+    NtUnmapViewOfSection(NtCurrentProcess(), DllBase);
 }
 
 _Success_(return)

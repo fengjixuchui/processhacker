@@ -746,12 +746,8 @@ static VOID ReadCurrentUserRun(
             PPH_STRING fullFileName;
             PPH_STRING applicationFileName;
 
-            PH_AUTO(value);
-
             if (PhParseCommandLineFuzzy(&value->sr, &fileName, &arguments, &fullFileName))
             {
-                PH_AUTO(fullFileName);
-
                 if (applicationFileName = PhGetApplicationFileName())
                 {
                     if (fullFileName && PhEqualString(fullFileName, applicationFileName, TRUE))
@@ -761,7 +757,11 @@ static VOID ReadCurrentUserRun(
 
                     PhDereferenceObject(applicationFileName);
                 }
+
+                if (fullFileName) PhDereferenceObject(fullFileName);
             }
+
+            PhDereferenceObject(value);
         }
 
         NtClose(keyHandle);
@@ -1459,6 +1459,7 @@ INT_PTR CALLBACK PhpOptionsGeneralDlgProc(
                                         {
                                             HRESULT status;
                                             PPH_STRING quotedFileName;
+#if (PHNT_VERSION >= PHNT_WIN7)
                                             RTL_ELEVATION_FLAGS flags;
 
                                             if (NT_SUCCESS(RtlQueryElevationFlags(&flags)) && flags.ElevationEnabled)
@@ -1484,7 +1485,7 @@ INT_PTR CALLBACK PhpOptionsGeneralDlgProc(
                                                     }
                                                 }
                                             }
-
+#endif
                                             quotedFileName = PH_AUTO(PhConcatStrings(3, L"\"", PhGetStringOrEmpty(applicationFileName), L"\""));
 
                                             status = PhCreateAdminTask(

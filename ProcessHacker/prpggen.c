@@ -183,10 +183,6 @@ INT_PTR CALLBACK PhpProcessGeneralDlgProc(
         {
             HANDLE processHandle = NULL;
             PPH_STRING curDir = NULL;
-            PROCESS_BASIC_INFORMATION basicInfo;
-#ifdef _WIN64
-            PVOID peb32;
-#endif
             PPH_PROCESS_ITEM parentProcess;
             CLIENT_ID clientId;
             HICON folder;
@@ -361,44 +357,42 @@ INT_PTR CALLBACK PhpProcessGeneralDlgProc(
                 EnableWindow(GetDlgItem(hwndDlg, IDC_VIEWPARENTPROCESS), FALSE);
             }
 
-            // Mitigation policies
+            // Parent console
 
-            PhpUpdateProcessMitigationPolicies(hwndDlg, processItem);
+            //if (NT_SUCCESS(PhGetProcessConsoleHostProcessId(processItem->QueryHandle, &consoleParentProcessId)))
+            //{
+            //    ProcessItem->ParentProcessId = consoleParentProcessId;
+            //    PhPrintUInt32(ProcessItem->ParentProcessIdString, HandleToUlong(consoleParentProcessId));
+            //}
 
-            // PEB address
-
-            PhSetDialogItemText(hwndDlg, IDC_PEBADDRESS, L"N/A");
-
-            if (NT_SUCCESS(PhOpenProcess(
-                &processHandle,
-                PROCESS_QUERY_LIMITED_INFORMATION,
-                processItem->ProcessId
-                )))
+            if (parentProcess = PhReferenceProcessItem((HANDLE)((ULONG_PTR)processItem->ConsoleHostProcessId & ~3)))
             {
-                PhGetProcessBasicInformation(processHandle, &basicInfo);
-#ifdef _WIN64
-                if (processItem->IsWow64)
+                if (parentProcess->ProcessId == 0)
                 {
-                    PhGetProcessPeb32(processHandle, &peb32);
-                    PhSetDialogItemText(hwndDlg, IDC_PEBADDRESS, PhaFormatString(
-                        L"0x%Ix (32-bit: 0x%x)",
-                        (ULONG_PTR)basicInfo.PebBaseAddress,
-                        PtrToUlong(peb32)
-                        )->Buffer);
+                    PhSetDialogItemText(hwndDlg, IDC_PARENTCONSOLE, L"N/A");
                 }
                 else
                 {
-#endif
-                PhSetDialogItemText(hwndDlg, IDC_PEBADDRESS, PhaFormatString(
-                    L"0x%Ix",
-                    (ULONG_PTR)basicInfo.PebBaseAddress
-                    )->Buffer);
-#ifdef _WIN64
+                    clientId.UniqueProcess = parentProcess->ProcessId;
+                    clientId.UniqueThread = NULL;
+
+                    PhSetDialogItemText(
+                        hwndDlg,
+                        IDC_PARENTCONSOLE,
+                        PH_AUTO_T(PH_STRING, PhGetClientIdNameEx(&clientId, parentProcess->ProcessName))->Buffer
+                        );
                 }
-#endif
-                NtClose(processHandle);
-                processHandle = NULL;
+
+                PhDereferenceObject(parentProcess);
             }
+            else
+            {
+                PhSetDialogItemText(hwndDlg, IDC_PARENTCONSOLE, L"N/A");
+            }
+
+            // Mitigation policies
+
+            PhpUpdateProcessMitigationPolicies(hwndDlg, processItem);
 
             // Protection
 
@@ -446,7 +440,7 @@ INT_PTR CALLBACK PhpProcessGeneralDlgProc(
                 PhAddPropPageLayoutItem(hwndDlg, GetDlgItem(hwndDlg, IDC_VIEWCOMMANDLINE), dialogItem, PH_ANCHOR_TOP | PH_ANCHOR_RIGHT);
                 PhAddPropPageLayoutItem(hwndDlg, GetDlgItem(hwndDlg, IDC_CURDIR), dialogItem, PH_ANCHOR_LEFT | PH_ANCHOR_TOP | PH_ANCHOR_RIGHT);
                 PhAddPropPageLayoutItem(hwndDlg, GetDlgItem(hwndDlg, IDC_STARTED), dialogItem, PH_ANCHOR_LEFT | PH_ANCHOR_TOP | PH_ANCHOR_RIGHT);
-                PhAddPropPageLayoutItem(hwndDlg, GetDlgItem(hwndDlg, IDC_PEBADDRESS), dialogItem, PH_ANCHOR_LEFT | PH_ANCHOR_TOP | PH_ANCHOR_RIGHT);
+                PhAddPropPageLayoutItem(hwndDlg, GetDlgItem(hwndDlg, IDC_PARENTCONSOLE), dialogItem, PH_ANCHOR_LEFT | PH_ANCHOR_TOP | PH_ANCHOR_RIGHT);
                 PhAddPropPageLayoutItem(hwndDlg, GetDlgItem(hwndDlg, IDC_PARENTPROCESS), dialogItem, PH_ANCHOR_LEFT | PH_ANCHOR_TOP | PH_ANCHOR_RIGHT);
                 PhAddPropPageLayoutItem(hwndDlg, GetDlgItem(hwndDlg, IDC_VIEWPARENTPROCESS), dialogItem, PH_ANCHOR_TOP | PH_ANCHOR_RIGHT);
                 PhAddPropPageLayoutItem(hwndDlg, GetDlgItem(hwndDlg, IDC_MITIGATION), dialogItem, PH_ANCHOR_LEFT | PH_ANCHOR_TOP | PH_ANCHOR_RIGHT);

@@ -2336,7 +2336,7 @@ PPH_STRING PhGetFullPath(
     PWSTR filePart;
 
     bufferSize = 0x80;
-    fullPath = PhCreateStringEx(NULL, bufferSize * 2);
+    fullPath = PhCreateStringEx(NULL, bufferSize * sizeof(WCHAR));
 
     returnLength = RtlGetFullPathName_U(FileName, bufferSize, fullPath->Buffer, &filePart);
 
@@ -2344,7 +2344,7 @@ PPH_STRING PhGetFullPath(
     {
         PhDereferenceObject(fullPath);
         bufferSize = returnLength;
-        fullPath = PhCreateStringEx(NULL, bufferSize * 2);
+        fullPath = PhCreateStringEx(NULL, bufferSize * sizeof(WCHAR));
 
         returnLength = RtlGetFullPathName_U(FileName, bufferSize, fullPath->Buffer, &filePart);
     }
@@ -2367,7 +2367,7 @@ PPH_STRING PhGetFullPath(
         else
         {
             // The path points to a directory.
-            *IndexOfFileName = -1;
+            *IndexOfFileName = ULONG_MAX;
         }
     }
 
@@ -2770,11 +2770,7 @@ NTSTATUS PhWaitForMultipleObjectsAndPump(
     ULONG64 currentTickCount;
     ULONG64 currentTimeout;
 
-#if (PHNT_VERSION >= PHNT_WIN7)
     startTickCount = NtGetTickCount64();
-#else
-    startTickCount = GetTickCount();
-#endif
     currentTimeout = Timeout;
 
     while (TRUE)
@@ -2815,11 +2811,7 @@ NTSTATUS PhWaitForMultipleObjectsAndPump(
 
         if (Timeout != INFINITE)
         {
-#if (PHNT_VERSION >= PHNT_WIN7)
             currentTickCount = NtGetTickCount64();
-#else
-            currentTickCount = GetTickCount();
-#endif
             currentTimeout = Timeout - (currentTickCount - startTickCount);
 
             if ((LONG64)currentTimeout < 0)
@@ -7116,14 +7108,31 @@ NTSTATUS PhLoadPluginImage(
     )
 {
     NTSTATUS status;
+    ULONG imageType;
     PVOID imageBaseAddress;
     PIMAGE_NT_HEADERS imageNtHeaders;
     PLDR_INIT_ROUTINE imageEntryRoutine;
+    UNICODE_STRING imageFileNameUs;
 
-    status = PhLoaderEntryLoadDll(
-        FileName->Buffer,
+    imageType = IMAGE_FILE_EXECUTABLE_IMAGE;
+    PhStringRefToUnicodeString(&FileName->sr, &imageFileNameUs);
+
+    status = LdrLoadDll(
+        NULL,
+        &imageType,
+        &imageFileNameUs,
         &imageBaseAddress
         );
+
+    //NTSTATUS status;
+    //PVOID imageBaseAddress;
+    //PIMAGE_NT_HEADERS imageNtHeaders;
+    //PLDR_INIT_ROUTINE imageEntryRoutine;
+
+    //status = PhLoaderEntryLoadDll(
+    //    FileName->Buffer,
+    //    &imageBaseAddress
+    //    );
 
     if (!NT_SUCCESS(status))
         goto CleanupExit;
@@ -7174,7 +7183,8 @@ CleanupExit:
     }
     else
     {
-        PhLoaderEntryUnloadDll(imageBaseAddress);
+        LdrUnloadDll(imageBaseAddress);
+        //PhLoaderEntryUnloadDll(imageBaseAddress);
     }
 
     return status;

@@ -497,6 +497,30 @@ PhStringToGuid(
     _Out_ PGUID Guid
     );
 
+typedef struct _VS_VERSION_INFO_STRUCT16
+{
+    USHORT Length;
+    USHORT ValueLength;
+    CHAR Key[1];
+} VS_VERSION_INFO_STRUCT16, *PVS_VERSION_INFO_STRUCT16;
+
+typedef struct _VS_VERSION_INFO_STRUCT32
+{
+    USHORT Length;
+    USHORT ValueLength;
+    USHORT Type;
+    WCHAR Key[1];
+} VS_VERSION_INFO_STRUCT32, *PVS_VERSION_INFO_STRUCT32;
+
+FORCEINLINE
+BOOLEAN
+PhIsFileVersionInfo32(
+    _In_ PVOID VersionInfo
+    )
+{
+    return ((PVS_VERSION_INFO_STRUCT16)VersionInfo)->Key[0] < 32;
+}
+
 PHLIBAPI
 PVOID
 NTAPI
@@ -505,15 +529,17 @@ PhGetFileVersionInfo(
     );
 
 PHLIBAPI
-_Success_(return)
-BOOLEAN
+VS_FIXEDFILEINFO*
 NTAPI
-PhGetFileVersionInfoValue(
-    _In_ PVOID VersionInfo,
-    _In_ PWSTR VersionInfoKey,
-    _Out_opt_ PVOID* Buffer,
-    _Out_opt_ PULONG BufferLength
+PhGetFileVersionFixedInfo(
+    _In_ PVOID VersionInfo
     );
+
+typedef struct _LANGANDCODEPAGE
+{
+    USHORT Language;
+    USHORT CodePage;
+} LANGANDCODEPAGE, *PLANGANDCODEPAGE;
 
 PHLIBAPI
 ULONG
@@ -536,7 +562,7 @@ NTAPI
 PhGetFileVersionInfoString2(
     _In_ PVOID VersionInfo,
     _In_ ULONG LangCodePage,
-    _In_ PWSTR StringName
+    _In_ PPH_STRINGREF KeyName
     );
 
 typedef struct _PH_IMAGE_VERSION_INFO
@@ -552,6 +578,15 @@ _Success_(return)
 BOOLEAN
 NTAPI
 PhInitializeImageVersionInfo(
+    _Out_ PPH_IMAGE_VERSION_INFO ImageVersionInfo,
+    _In_ PWSTR FileName
+    );
+
+PHLIBAPI
+_Success_(return)
+BOOLEAN
+NTAPI
+PhInitializeImageVersionInfo2(
     _Out_ PPH_IMAGE_VERSION_INFO ImageVersionInfo,
     _In_ PWSTR FileName
     );
@@ -573,14 +608,15 @@ PhFormatImageVersionInfo(
     _In_opt_ ULONG LineLimit
     );
 
-PHLIBAPI
 _Success_(return)
+PHLIBAPI
 BOOLEAN
 NTAPI
 PhInitializeImageVersionInfoCached(
     _Out_ PPH_IMAGE_VERSION_INFO ImageVersionInfo,
     _In_ PPH_STRING FileName,
-    _In_ BOOLEAN IsSubsystemProcess
+    _In_ BOOLEAN IsSubsystemProcess,
+    _In_ BOOLEAN ExtendedVersion
     );
 
 PHLIBAPI
@@ -591,6 +627,7 @@ PhFlushImageVersionInfoCache(
     );
 
 PHLIBAPI
+_Success_(return != NULL)
 PPH_STRING
 NTAPI
 PhGetFullPath(
@@ -1221,6 +1258,7 @@ PhFindLoaderEntry(
     );
 
 PHLIBAPI
+_Success_(return != NULL)
 PPH_STRING
 NTAPI
 PhGetDllFileName(

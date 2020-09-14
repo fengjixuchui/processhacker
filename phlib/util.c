@@ -695,9 +695,6 @@ BOOLEAN PhShowConfirmMessage(
     PPH_STRING verb;
     PPH_STRING verbCaps;
     PPH_STRING action;
-    TASKDIALOGCONFIG config = { sizeof(config) };
-    TASKDIALOG_BUTTON buttons[2];
-    INT button;
 
     // Make sure the verb is all lowercase.
     verb = PhaLowerString(PhaCreateString(Verb));
@@ -709,37 +706,51 @@ BOOLEAN PhShowConfirmMessage(
     // "terminate", "the process" -> "terminate the process"
     action = PhaConcatStrings(3, verb->Buffer, L" ", Object);
 
-    config.hwndParent = hWnd;
-    config.hInstance = PhInstanceHandle;
-    config.dwFlags = TDF_ALLOW_DIALOG_CANCELLATION | ((hWnd && IsWindowVisible(hWnd) && !IsMinimized(hWnd)) ? TDF_POSITION_RELATIVE_TO_WINDOW : 0);
-    config.pszWindowTitle = PhApplicationName;
-    config.pszMainIcon = Warning ? TD_WARNING_ICON : TD_INFORMATION_ICON;
-    config.pszMainInstruction = PhaConcatStrings(3, L"Do you want to ", action->Buffer, L"?")->Buffer;
-
-    if (Message)
-        config.pszContent = PhaConcatStrings2(Message, L" Are you sure you want to continue?")->Buffer;
-
-    buttons[0].nButtonID = IDYES;
-    buttons[0].pszButtonText = verbCaps->Buffer;
-    buttons[1].nButtonID = IDNO;
-    buttons[1].pszButtonText = L"Cancel";
-
-    config.cButtons = 2;
-    config.pButtons = buttons;
-    config.nDefaultButton = IDYES;
-
-    if (SUCCEEDED(TaskDialogIndirect(
-        &config,
-        &button,
-        NULL,
-        NULL
-        )))
+    if (TaskDialogIndirect)
     {
-        return button == IDYES;
+        TASKDIALOGCONFIG config = { sizeof(TASKDIALOGCONFIG) };
+        TASKDIALOG_BUTTON buttons[2];
+        INT button;
+
+        config.hwndParent = hWnd;
+        config.hInstance = PhInstanceHandle;
+        config.dwFlags = TDF_ALLOW_DIALOG_CANCELLATION | ((hWnd && IsWindowVisible(hWnd) && !IsMinimized(hWnd)) ? TDF_POSITION_RELATIVE_TO_WINDOW : 0);
+        config.pszWindowTitle = PhApplicationName;
+        config.pszMainIcon = Warning ? TD_WARNING_ICON : TD_INFORMATION_ICON;
+        config.pszMainInstruction = PhaConcatStrings(3, L"Do you want to ", action->Buffer, L"?")->Buffer;
+        if (Message) config.pszContent = PhaConcatStrings2(Message, L" Are you sure you want to continue?")->Buffer;
+
+        buttons[0].nButtonID = IDYES;
+        buttons[0].pszButtonText = verbCaps->Buffer;
+        buttons[1].nButtonID = IDNO;
+        buttons[1].pszButtonText = L"Cancel";
+
+        config.cButtons = 2;
+        config.pButtons = buttons;
+        config.nDefaultButton = IDYES;
+
+        if (SUCCEEDED(TaskDialogIndirect(
+            &config,
+            &button,
+            NULL,
+            NULL
+            )))
+        {
+            return button == IDYES;
+        }
+        else
+        {
+            return FALSE;
+        }
     }
     else
     {
-        return FALSE;
+        return PhShowMessage(
+            hWnd,
+            MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2,
+            L"Are you sure you want to %s?",
+            action->Buffer
+            ) == IDYES;
     }
 }
 
@@ -1348,7 +1359,7 @@ PPH_STRING PhFormatDateTime(
     timeBufferSize = GetTimeFormat(LOCALE_USER_DEFAULT, 0, DateTime, NULL, NULL, 0);
     dateBufferSize = GetDateFormat(LOCALE_USER_DEFAULT, 0, DateTime, NULL, NULL, 0);
 
-    string = PhCreateStringEx(NULL, (timeBufferSize + 1 + dateBufferSize) * sizeof(WCHAR));
+    string = PhCreateStringEx(NULL, ((SIZE_T)timeBufferSize + 1 + dateBufferSize) * sizeof(WCHAR));
 
     if (!GetTimeFormat(LOCALE_USER_DEFAULT, 0, DateTime, NULL, &string->Buffer[0], timeBufferSize))
     {
@@ -1720,151 +1731,118 @@ PVOID PhGetFileVersionInfo(
         &versionInfo
         ))
     {
-        FreeLibrary(libraryModule);
-        return versionInfo;
+        if (PhIsFileVersionInfo32(versionInfo))
+        {
+            FreeLibrary(libraryModule);
+            return versionInfo;
+        }
     }
 
     FreeLibrary(libraryModule);
     return NULL;
 }
 
-typedef struct _VS_VERSION_INFO_STRUCT16
-{
-    USHORT Length;
-    USHORT ValueLength;
-    CHAR Key[1];
-} VS_VERSION_INFO_STRUCT16, *PVS_VERSION_INFO_STRUCT16;
-
-typedef struct _VS_VERSION_INFO_STRUCT32
-{
-    USHORT Length;
-    USHORT ValueLength;
-    USHORT Type;
-    WCHAR Key[1];
-} VS_VERSION_INFO_STRUCT32, *PVS_VERSION_INFO_STRUCT32;
-
-// Note: Based on VersionInfoIs16 from ReactOS with modifications (dmex)
-BOOLEAN PhpVersionInfo_IsVersion16(
+PVOID PhGetFileVersionInfoValue(
     _In_ PVS_VERSION_INFO_STRUCT32 VersionInfo
     )
 {
-    return ((PVS_VERSION_INFO_STRUCT16)VersionInfo)->Key[0] >= 32;
+    PWSTR keyOffset = VersionInfo->Key + PhCountStringZ(VersionInfo->Key) + 1;
+
+    return PTR_ADD_OFFSET(VersionInfo, ALIGN_UP(PTR_SUB_OFFSET(keyOffset, VersionInfo), ULONG));
 }
 
-// Note: Based on VersionInfo32_Value from ReactOS with modifications (dmex)
-PVOID PhpVersionInfo_GetValue32(
-    _In_ PVS_VERSION_INFO_STRUCT32 VersionInfo
-    )
-{
-    PWSTR offset = VersionInfo->Key + PhCountStringZ(VersionInfo->Key) + 1;
-
-    return PTR_ADD_OFFSET(VersionInfo, ALIGN_UP(PTR_SUB_OFFSET(offset, VersionInfo), ULONG));
-}
-
-// Note: Based on VersionInfo32_Children from ReactOS with modifications (dmex)
-PVOID PhpVersionInfo_GetChildren32(
-    _In_ PVS_VERSION_INFO_STRUCT32 VersionInfo
-    )
-{
-    USHORT offset = VersionInfo->ValueLength * (VersionInfo->Type ? sizeof(WCHAR) : sizeof(BYTE));
-
-    return PTR_ADD_OFFSET(PhpVersionInfo_GetValue32(VersionInfo), ALIGN_UP(offset, ULONG));
-}
-
-// Note: Based on VersionInfo32_Next from ReactOS with modifications (dmex)
-PVOID PhpVersionInfo_GetNext32(
-    _In_ PVS_VERSION_INFO_STRUCT32 VersionInfo
-    )
-{
-    return PTR_ADD_OFFSET(VersionInfo, ALIGN_UP(VersionInfo->Length, ULONG));
-}
-
-// Note: Based on VersionInfo32_FindChild from ReactOS with modifications (dmex)
-PVOID PhpVersionInfo_FindChild32(
+_Success_(return)
+BOOLEAN PhGetFileVersionInfoKey(
     _In_ PVS_VERSION_INFO_STRUCT32 VersionInfo,
+    _In_ ULONG KeyLength,
     _In_ PWSTR Key,
-    _In_ ULONG KeyLength
+    _Out_opt_ PVOID* Buffer
     )
 {
-    PVS_VERSION_INFO_STRUCT32 child = PhpVersionInfo_GetChildren32(VersionInfo);
+    PVOID value;
+    ULONG valueOffset;
+    PVS_VERSION_INFO_STRUCT32 child;
+
+    if (!(value = PhGetFileVersionInfoValue(VersionInfo)))
+        return FALSE;
+
+    valueOffset = VersionInfo->ValueLength * (VersionInfo->Type ? sizeof(WCHAR) : sizeof(BYTE));
+    child = PTR_ADD_OFFSET(value, ALIGN_UP(valueOffset, ULONG));
 
     while ((ULONG_PTR)child < (ULONG_PTR)VersionInfo + VersionInfo->Length)
     {
         if (_wcsnicmp(child->Key, Key, KeyLength) == 0 && !child->Key[KeyLength])
-            return child;
+        {
+            if (Buffer)
+                *Buffer = child;
+
+            return TRUE;
+        }
 
         if (child->Length == 0)
-            return NULL;
+            break;
 
-        child = PhpVersionInfo_GetNext32(child);
+        child = PTR_ADD_OFFSET(child, ALIGN_UP(child->Length, ULONG));
     }
 
-    return NULL;
+    return FALSE;
 }
 
-// Note: Based on VersionInfo32_QueryValue from ReactOS with modifications (dmex)
 _Success_(return)
-BOOLEAN PhpVersionInfo_QueryInfo32(
+BOOLEAN PhGetFileVersionVarFileInfoValue(
     _In_ PVOID VersionInfo,
-    _In_ PWSTR VersionInfoKey,
+    _In_ PPH_STRINGREF KeyName,
     _Out_opt_ PVOID* Buffer,
     _Out_opt_ PULONG BufferLength
     )
 {
-    PVS_VERSION_INFO_STRUCT32 blockInfo = VersionInfo;
-    PWSTR blockKeyName = VersionInfoKey;
-    PWSTR blockKeySlash;
-    ULONG blockKeyLength;
+    static PH_STRINGREF varfileBlockName = PH_STRINGREF_INIT(L"VarFileInfo");
+    PVS_VERSION_INFO_STRUCT32 varfileBlockInfo;
+    PVS_VERSION_INFO_STRUCT32 varfileBlockValue;
+    ULONG varfileBlockLength;
 
-    while (*blockKeyName)
+    if (PhGetFileVersionInfoKey(
+        VersionInfo,
+        (ULONG)varfileBlockName.Length / sizeof(WCHAR),
+        varfileBlockName.Buffer,
+        &varfileBlockInfo
+        ))
     {
-        for (blockKeySlash = blockKeyName; *blockKeySlash; blockKeySlash++)
+        varfileBlockLength = (ULONG)KeyName->Length / sizeof(WCHAR);
+
+        if (PhGetFileVersionInfoKey(
+            varfileBlockInfo,
+            varfileBlockLength,
+            KeyName->Buffer,
+            &varfileBlockValue
+            ))
         {
-            if (*blockKeySlash == OBJ_NAME_PATH_SEPARATOR)
-                break;
+            if (BufferLength)
+                *BufferLength = varfileBlockValue->ValueLength;
+            if (Buffer)
+                *Buffer = PhGetFileVersionInfoValue(varfileBlockValue);
+            return TRUE;
         }
-
-        if (blockKeySlash == blockKeyName)
-        {
-            blockKeyName++;
-            continue;
-        }
-
-        blockKeyLength = PtrToUlong(PTR_SUB_OFFSET(blockKeySlash, blockKeyName)) / sizeof(WCHAR);
-        blockInfo = PhpVersionInfo_FindChild32(blockInfo, blockKeyName, blockKeyLength);
-
-        if (!blockInfo)
-            return FALSE;
-
-        blockKeyName = blockKeySlash;
     }
 
-    if (Buffer)
-        *Buffer = PhpVersionInfo_GetValue32(blockInfo);
-    if (BufferLength)
-        *BufferLength = blockInfo->ValueLength;
-
-    return TRUE;
+    return FALSE;
 }
 
-_Success_(return)
-BOOLEAN PhGetFileVersionInfoValue(
-    _In_ PVOID VersionInfo,
-    _In_ PWSTR VersionInfoKey,
-    _Out_opt_ PVOID* Buffer,
-    _Out_opt_ PULONG BufferLength
+VS_FIXEDFILEINFO* PhGetFileVersionFixedInfo(
+    _In_ PVOID VersionInfo
     )
 {
-    if (PhpVersionInfo_IsVersion16(VersionInfo))
-        return FALSE;
+    VS_FIXEDFILEINFO* fileInfo;
 
-    __try
+    fileInfo = PhGetFileVersionInfoValue(VersionInfo);
+
+    if (fileInfo && fileInfo->dwSignature == VS_FFI_SIGNATURE)
     {
-        return PhpVersionInfo_QueryInfo32(VersionInfo, VersionInfoKey, Buffer, BufferLength);
+        return fileInfo;
     }
-    __except (EXCEPTION_EXECUTE_HANDLER)
+    else
     {
-        return FALSE;
+        return NULL;
     }
 }
 
@@ -1877,18 +1855,19 @@ ULONG PhGetFileVersionInfoLangCodePage(
     _In_ PVOID VersionInfo
     )
 {
-    PVOID buffer;
-    ULONG length;
+    static PH_STRINGREF codePageNameSr = PH_STRINGREF_INIT(L"Translation");
+    PLANGANDCODEPAGE codePage = NULL;
+    ULONG codePageLength = 0;
 
-    if (PhGetFileVersionInfoValue(VersionInfo, L"\\VarFileInfo\\Translation", &buffer, &length))
+    if (PhGetFileVersionVarFileInfoValue(VersionInfo, &codePageNameSr, &codePage, &codePageLength))
     {
-        // Combine the language ID and code page.
-        return (*(PUSHORT)buffer << 16) + *((PUSHORT)buffer + 1);
+        for (ULONG i = 0; i < (codePageLength / sizeof(LANGANDCODEPAGE)); i++)
+        {
+            return (codePage[0].Language << 16) + codePage[0].CodePage; // Combine the language ID and code page.
+        }
     }
-    else
-    {
-        return (MAKELANGID(LANG_ENGLISH, SUBLANG_ENGLISH_US) << 16) + 1252;
-    }
+
+    return (MAKELANGID(LANG_ENGLISH, SUBLANG_ENGLISH_US) << 16) + 1252;
 }
 
 /**
@@ -1902,10 +1881,18 @@ PPH_STRING PhGetFileVersionInfoString(
     _In_ PWSTR SubBlock
     )
 {
-    PVOID buffer;
+    PH_STRINGREF name;
+    PWSTR buffer;
     ULONG length;
 
-    if (PhGetFileVersionInfoValue(VersionInfo, SubBlock, &buffer, &length))
+    PhInitializeStringRefLongHint(&name, SubBlock);
+
+    if (PhGetFileVersionVarFileInfoValue(
+        VersionInfo,
+        &name,
+        &buffer,
+        &length
+        ))
     {
         PPH_STRING string;
 
@@ -1935,23 +1922,98 @@ PPH_STRING PhGetFileVersionInfoString(
 PPH_STRING PhGetFileVersionInfoString2(
     _In_ PVOID VersionInfo,
     _In_ ULONG LangCodePage,
-    _In_ PWSTR StringName
+    _In_ PPH_STRINGREF KeyName
     )
 {
-    WCHAR subBlock[65];
-    PH_FORMAT format[4];
+    static PH_STRINGREF blockInfoName = PH_STRINGREF_INIT(L"StringFileInfo");
+    PVS_VERSION_INFO_STRUCT32 blockStringInfo;
+    PVS_VERSION_INFO_STRUCT32 blockLangInfo;
+    PVS_VERSION_INFO_STRUCT32 stringNameBlockInfo;
+    ULONG stringNameInfoLength;
+    PWSTR stringNameBlockValue;
+    PPH_STRING string;
+    SIZE_T returnLength;
+    PH_FORMAT format[3];
+    WCHAR langNameString[65];
 
-    PhInitFormatS(&format[0], L"\\StringFileInfo\\");
-    PhInitFormatX(&format[1], LangCodePage);
-    format[1].Type |= FormatPadZeros | FormatUpperCase;
-    format[1].Width = 8;
-    PhInitFormatC(&format[2], L'\\');
-    PhInitFormatS(&format[3], StringName);
-
-    if (PhFormatToBuffer(format, 4, subBlock, sizeof(subBlock), NULL))
-        return PhGetFileVersionInfoString(VersionInfo, subBlock);
-    else
+    if (!PhGetFileVersionInfoKey(
+        VersionInfo,
+        (ULONG)blockInfoName.Length / sizeof(WCHAR),
+        blockInfoName.Buffer,
+        &blockStringInfo
+        ))
+    {
         return NULL;
+    }
+
+    PhInitFormatX(&format[0], LangCodePage);
+    format[0].Type |= FormatPadZeros | FormatUpperCase;
+    format[0].Width = 8;
+
+    if (!PhFormatToBuffer(format, 1, langNameString, sizeof(langNameString), &returnLength))
+        return NULL;
+
+    if (!PhGetFileVersionInfoKey(
+        blockStringInfo,
+        (ULONG)returnLength / sizeof(WCHAR) - sizeof(ANSI_NULL),
+        langNameString,
+        &blockLangInfo
+        ))
+    {
+        return NULL;
+    }
+
+    stringNameInfoLength = (ULONG)KeyName->Length / sizeof(WCHAR);
+
+    if (!PhGetFileVersionInfoKey(
+        blockLangInfo,
+        stringNameInfoLength,
+        KeyName->Buffer,
+        &stringNameBlockInfo
+        ))
+    {
+        return NULL;
+    }
+
+    if (stringNameBlockInfo->ValueLength <= sizeof(UNICODE_NULL)) // Check if the string has a valid length.
+        return NULL;
+    if (!(stringNameBlockValue = PhGetFileVersionInfoValue(stringNameBlockInfo)))
+        return NULL;
+
+    string = PhCreateStringEx(
+        (PWCHAR)stringNameBlockValue,
+        stringNameBlockInfo->ValueLength * sizeof(WCHAR)
+        );
+    PhTrimToNullTerminatorString(string); // length may include the null terminator.
+
+    return string;
+}
+
+PPH_STRING PhGetFileVersionInfoStringEx(
+    _In_ PVOID VersionInfo,
+    _In_ ULONG LangCodePage,
+    _In_ PPH_STRINGREF KeyName
+    )
+{
+    PPH_STRING string;
+
+    // Use the default language code page.
+    if (string = PhGetFileVersionInfoString2(VersionInfo, LangCodePage, KeyName))
+        return string;
+
+    // Use the windows-1252 code page.
+    if (string = PhGetFileVersionInfoString2(VersionInfo, (LangCodePage & 0xffff0000) + 1252, KeyName))
+        return string;
+
+    // Use the default language (US English).
+    if (string = PhGetFileVersionInfoString2(VersionInfo, (MAKELANGID(LANG_ENGLISH, SUBLANG_ENGLISH_US) << 16) + 1252, KeyName))
+        return string;
+
+    // Use the default language (US English).
+    if (string = PhGetFileVersionInfoString2(VersionInfo, (MAKELANGID(LANG_ENGLISH, SUBLANG_ENGLISH_US) << 16) + 0, KeyName))
+        return string;
+
+    return NULL;
 }
 
 VOID PhpGetImageVersionInfoFields(
@@ -1960,28 +2022,77 @@ VOID PhpGetImageVersionInfoFields(
     _In_ ULONG LangCodePage
     )
 {
-    ImageVersionInfo->CompanyName = PhGetFileVersionInfoString2(VersionInfo, LangCodePage, L"CompanyName");
-    ImageVersionInfo->FileDescription = PhGetFileVersionInfoString2(VersionInfo, LangCodePage, L"FileDescription");
-    ImageVersionInfo->ProductName = PhGetFileVersionInfoString2(VersionInfo, LangCodePage, L"ProductName");
+    static PH_STRINGREF companyNameSr = PH_STRINGREF_INIT(L"CompanyName");
+    static PH_STRINGREF fileDescriptionSr = PH_STRINGREF_INIT(L"FileDescription");
+    static PH_STRINGREF productNameSr = PH_STRINGREF_INIT(L"ProductName");
+
+    ImageVersionInfo->CompanyName = PhGetFileVersionInfoStringEx(VersionInfo, LangCodePage, &companyNameSr);
+    ImageVersionInfo->FileDescription = PhGetFileVersionInfoStringEx(VersionInfo, LangCodePage, &fileDescriptionSr);
+    ImageVersionInfo->ProductName = PhGetFileVersionInfoStringEx(VersionInfo, LangCodePage, &productNameSr);
 }
 
-PPH_STRING PhpGetImageVersionVersionString(
+VOID PhpGetImageVersionVersionString(
+    _Out_ PPH_IMAGE_VERSION_INFO ImageVersionInfo,
+    _In_ PVOID VersionInfo
+    )
+{
+    VS_FIXEDFILEINFO* rootBlock;
+
+    // The version information is language-independent and must be read from the root block.
+    if (rootBlock = PhGetFileVersionFixedInfo(VersionInfo))
+    {
+        PH_FORMAT fileVersionFormat[7];
+
+        PhInitFormatU(&fileVersionFormat[0], HIWORD(rootBlock->dwFileVersionMS));
+        PhInitFormatC(&fileVersionFormat[1], L'.');
+        PhInitFormatU(&fileVersionFormat[2], LOWORD(rootBlock->dwFileVersionMS));
+        PhInitFormatC(&fileVersionFormat[3], L'.');
+        PhInitFormatU(&fileVersionFormat[4], HIWORD(rootBlock->dwFileVersionLS));
+        PhInitFormatC(&fileVersionFormat[5], L'.');
+        PhInitFormatU(&fileVersionFormat[6], LOWORD(rootBlock->dwFileVersionLS));
+
+        ImageVersionInfo->FileVersion = PhFormat(fileVersionFormat, RTL_NUMBER_OF(fileVersionFormat), 64);
+    }
+    else
+    {
+        ImageVersionInfo->FileVersion = NULL;
+    }
+}
+
+VOID PhpGetImageVersionVersionStringEx(
+    _Out_ PPH_IMAGE_VERSION_INFO ImageVersionInfo,
     _In_ PVOID VersionInfo,
     _In_ ULONG LangCodePage
     )
 {
+    static PH_STRINGREF fileVersionSr = PH_STRINGREF_INIT(L"FileVersion");
+    VS_FIXEDFILEINFO* rootBlock;
     PPH_STRING versionString;
 
-    if (versionString = PhGetFileVersionInfoString2(VersionInfo, LangCodePage, L"FileVersion"))
-        return versionString;
-    if (versionString = PhGetFileVersionInfoString2(VersionInfo, (LangCodePage & 0xffff0000) + 1252, L"FileVersion"))
-        return versionString;
-    if (versionString = PhGetFileVersionInfoString2(VersionInfo, (MAKELANGID(LANG_ENGLISH, SUBLANG_ENGLISH_US) << 16) + 1252, L"FileVersion"))
-        return versionString;
-    if (versionString = PhGetFileVersionInfoString2(VersionInfo, (MAKELANGID(LANG_ENGLISH, SUBLANG_ENGLISH_US) << 16) + 0, L"FileVersion"))
-        return versionString;
+    if (versionString = PhGetFileVersionInfoStringEx(VersionInfo, LangCodePage, &fileVersionSr))
+    {
+        ImageVersionInfo->FileVersion = versionString;
+        return;
+    }
 
-    return NULL;
+    if (rootBlock = PhGetFileVersionFixedInfo(VersionInfo))
+    {
+        PH_FORMAT fileVersionFormat[7];
+
+        PhInitFormatU(&fileVersionFormat[0], HIWORD(rootBlock->dwFileVersionMS));
+        PhInitFormatC(&fileVersionFormat[1], L'.');
+        PhInitFormatU(&fileVersionFormat[2], LOWORD(rootBlock->dwFileVersionMS));
+        PhInitFormatC(&fileVersionFormat[3], L'.');
+        PhInitFormatU(&fileVersionFormat[4], HIWORD(rootBlock->dwFileVersionLS));
+        PhInitFormatC(&fileVersionFormat[5], L'.');
+        PhInitFormatU(&fileVersionFormat[6], LOWORD(rootBlock->dwFileVersionLS));
+
+        ImageVersionInfo->FileVersion = PhFormat(fileVersionFormat, RTL_NUMBER_OF(fileVersionFormat), 64);
+    }
+    else
+    {
+        ImageVersionInfo->FileVersion = NULL;
+    }
 }
 
 /**
@@ -1997,11 +2108,30 @@ BOOLEAN PhInitializeImageVersionInfo(
     )
 {
     PVOID versionInfo;
-    PPH_STRING versionString;
     ULONG langCodePage;
-    VS_FIXEDFILEINFO *rootBlock;
-    ULONG rootBlockLength;
-    PH_FORMAT fileVersionFormat[7];
+
+    if (versionInfo = PhGetFileVersionInfo(FileName))
+    {
+        langCodePage = PhGetFileVersionInfoLangCodePage(versionInfo);
+
+        PhpGetImageVersionVersionString(ImageVersionInfo, versionInfo);
+        PhpGetImageVersionInfoFields(ImageVersionInfo, versionInfo, langCodePage);
+
+        PhFree(versionInfo);
+        return TRUE;
+    }
+
+    return FALSE;
+}
+
+_Success_(return)
+BOOLEAN PhInitializeImageVersionInfo2(
+    _Out_ PPH_IMAGE_VERSION_INFO ImageVersionInfo,
+    _In_ PWSTR FileName
+    )
+{
+    PVOID versionInfo;
+    ULONG langCodePage;
 
     versionInfo = PhGetFileVersionInfo(FileName);
 
@@ -2009,50 +2139,10 @@ BOOLEAN PhInitializeImageVersionInfo(
         return FALSE;
 
     langCodePage = PhGetFileVersionInfoLangCodePage(versionInfo);
+    PhpGetImageVersionVersionStringEx(ImageVersionInfo, versionInfo, langCodePage);
     PhpGetImageVersionInfoFields(ImageVersionInfo, versionInfo, langCodePage);
 
-    if (!ImageVersionInfo->CompanyName && !ImageVersionInfo->FileDescription && !ImageVersionInfo->ProductName)
-    {
-        // Use the windows-1252 code page.
-        PhpGetImageVersionInfoFields(ImageVersionInfo, versionInfo, (langCodePage & 0xffff0000) + 1252);
-
-        // Use the default language (US English).
-        if (!ImageVersionInfo->CompanyName && !ImageVersionInfo->FileDescription && !ImageVersionInfo->ProductName)
-        {
-            PhpGetImageVersionInfoFields(ImageVersionInfo, versionInfo, (MAKELANGID(LANG_ENGLISH, SUBLANG_ENGLISH_US) << 16) + 1252);
-
-            if (!ImageVersionInfo->CompanyName && !ImageVersionInfo->FileDescription && !ImageVersionInfo->ProductName)
-                PhpGetImageVersionInfoFields(ImageVersionInfo, versionInfo, (MAKELANGID(LANG_ENGLISH, SUBLANG_ENGLISH_US) << 16) + 0);
-        }
-    }
-
-    if (versionString = PhpGetImageVersionVersionString(versionInfo, langCodePage))
-    {
-        ImageVersionInfo->FileVersion = versionString;
-    }
-    else
-    {
-        // The version information is language-independent and must be read from the root block.
-        if (PhGetFileVersionInfoValue(versionInfo, L"\\", &rootBlock, &rootBlockLength) && rootBlockLength != 0)
-        {
-            PhInitFormatU(&fileVersionFormat[0], HIWORD(rootBlock->dwFileVersionMS));
-            PhInitFormatC(&fileVersionFormat[1], L'.');
-            PhInitFormatU(&fileVersionFormat[2], LOWORD(rootBlock->dwFileVersionMS));
-            PhInitFormatC(&fileVersionFormat[3], L'.');
-            PhInitFormatU(&fileVersionFormat[4], HIWORD(rootBlock->dwFileVersionLS));
-            PhInitFormatC(&fileVersionFormat[5], L'.');
-            PhInitFormatU(&fileVersionFormat[6], LOWORD(rootBlock->dwFileVersionLS));
-
-            ImageVersionInfo->FileVersion = PhFormat(fileVersionFormat, RTL_NUMBER_OF(fileVersionFormat), 64);
-        }
-        else
-        {
-            ImageVersionInfo->FileVersion = NULL;
-        }
-    }
-
     PhFree(versionInfo);
-
     return TRUE;
 }
 
@@ -2216,7 +2306,8 @@ _Success_(return)
 BOOLEAN PhInitializeImageVersionInfoCached(
     _Out_ PPH_IMAGE_VERSION_INFO ImageVersionInfo,
     _In_ PPH_STRING FileName,
-    _In_ BOOLEAN IsSubsystemProcess
+    _In_ BOOLEAN IsSubsystemProcess,
+    _In_ BOOLEAN ExtendedVersion
     )
 {
     PH_IMAGE_VERSION_INFO versionInfo = { 0 };
@@ -2251,8 +2342,16 @@ BOOLEAN PhInitializeImageVersionInfoCached(
     }
     else
     {
-        if (!PhInitializeImageVersionInfo(&versionInfo, FileName->Buffer))
-            return FALSE;
+        if (ExtendedVersion)
+        {
+            if (!PhInitializeImageVersionInfo2(&versionInfo, FileName->Buffer))
+                return FALSE;
+        }
+        else
+        {
+            if (!PhInitializeImageVersionInfo(&versionInfo, FileName->Buffer))
+                return FALSE;
+        }
     }
 
     if (!PhpImageVersionInfoCacheHashtable)
@@ -2325,6 +2424,7 @@ VOID PhFlushImageVersionInfoCache(
  *
  * \return An absolute file name, or NULL if the function failed.
  */
+_Success_(return != NULL)
 PPH_STRING PhGetFullPath(
     _In_ PWSTR FileName,
     _Out_opt_ PULONG IndexOfFileName
@@ -5912,16 +6012,16 @@ PPH_STRING PhLoadString(
     _In_ ULONG ResourceId
     )
 {
+    ULONG resourceId = (LOWORD(ResourceId) >> 4) + 1;
+    PIMAGE_RESOURCE_DIR_STRING_U stringBuffer;
     PPH_STRING string = NULL;
     ULONG resourceLength;
     PVOID resourceBuffer;
     ULONG stringIndex;
-    PWSTR stringBuffer;
-    ULONG i;
 
     if (!PhLoadResource(
         DllBase,
-        MAKEINTRESOURCE((LOWORD(ResourceId) >> 4) + 1),
+        MAKEINTRESOURCE(resourceId),
         RT_STRING,
         &resourceLength,
         &resourceBuffer
@@ -5933,16 +6033,20 @@ PPH_STRING PhLoadString(
     stringBuffer = resourceBuffer;
     stringIndex = ResourceId & 0x000F;
 
-    for (i = 0; i < stringIndex; i++) // dmex: Copied from ReactOS.
+    for (ULONG i = 0; i < stringIndex; i++)
     {
-        stringBuffer += *stringBuffer + 1;
+        stringBuffer = PTR_ADD_OFFSET(stringBuffer, ((ULONG_PTR)stringBuffer->Length + 1) * sizeof(WCHAR));
     }
 
-    i = min(resourceLength - 1, *stringBuffer);
-
-    if (i > 0)
+    if (
+        stringBuffer->Length > 0 && // sizeof(UNICODE_NULL) || resourceLength
+        stringBuffer->Length < UNICODE_STRING_MAX_BYTES
+        )
     {
-        string = PhCreateStringEx(stringBuffer + 1, i * sizeof(WCHAR));
+        string = PhCreateStringEx(
+            stringBuffer->NameString,
+            stringBuffer->Length * sizeof(WCHAR)
+            );
     }
 
     PhFree(resourceBuffer);
@@ -6156,6 +6260,7 @@ PLDR_DATA_TABLE_ENTRY PhFindLoaderEntry(
  *
  * \return The file name of the DLL, or NULL if the DLL could not be found.
  */
+_Success_(return != NULL)
 PPH_STRING PhGetDllFileName(
     _In_ PVOID DllBase,
     _Out_opt_ PULONG IndexOfFileName
@@ -6547,7 +6652,7 @@ PVOID PhGetLoaderEntryImageExportFunction(
                 {
                     ULONG64 importOrdinal;
 
-                    PhSkipStringRef(&dllProcedureRef, sizeof(WCHAR));
+                    PhSkipStringRef(&dllProcedureRef, sizeof(L'#'));
 
                     if (PhStringToInteger64(&dllProcedureRef, 10, &importOrdinal))
                         exportAddress = PhGetDllBaseProcedureAddress(libraryModule, NULL, (USHORT)importOrdinal);

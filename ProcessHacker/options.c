@@ -404,7 +404,7 @@ INT_PTR CALLBACK PhOptionsDialogProc(
                         hwndDlg,
                         TDCBF_YES_BUTTON | TDCBF_NO_BUTTON,
                         TD_INFORMATION_ICON,
-                        L"Do you want to clean up unused plugin settings?",
+                        L"Do you want to clean up unused settings?",
                         L""
                         ) == IDYES)
                     {
@@ -1448,6 +1448,7 @@ INT_PTR CALLBACK PhpOptionsGeneralDlgProc(
                                             PhShowInformation2(
                                                 PhOptionsWindowHandle,
                                                 L"Unable to enable option start as admin.",
+                                                L"%s",
                                                 L"You need to enable this option with administrative privileges."
                                                 );
 

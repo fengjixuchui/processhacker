@@ -94,9 +94,7 @@ VOID PhShowMemoryEditorDialog(
 
     if (!links)
     {
-        context = PhAllocate(sizeof(MEMORY_EDITOR_CONTEXT));
-        memset(context, 0, sizeof(MEMORY_EDITOR_CONTEXT));
-
+        context = PhAllocateZero(sizeof(MEMORY_EDITOR_CONTEXT));
         context->OwnerHandle = OwnerWindow;
         context->ProcessId = ProcessId;
         context->BaseAddress = BaseAddress;
@@ -166,14 +164,14 @@ INT_PTR CALLBACK PhpMemoryEditorDlgProc(
 {
     PMEMORY_EDITOR_CONTEXT context;
 
-    if (uMsg != WM_INITDIALOG)
-    {
-        context = PhGetWindowContext(hwndDlg, PH_WINDOW_CONTEXT_DEFAULT);
-    }
-    else
+    if (uMsg == WM_INITDIALOG)
     {
         context = (PMEMORY_EDITOR_CONTEXT)lParam;
         PhSetWindowContext(hwndDlg, PH_WINDOW_CONTEXT_DEFAULT, context);
+    }
+    else
+    {
+        context = PhGetWindowContext(hwndDlg, PH_WINDOW_CONTEXT_DEFAULT);
     }
 
     if (!context)
@@ -208,7 +206,7 @@ INT_PTR CALLBACK PhpMemoryEditorDlgProc(
 
             if (context->RegionSize > 1024 * 1024 * 1024) // 1 GB
             {
-                PhShowError(context->OwnerHandle, L"Unable to edit the memory region because it is too large.");
+                PhShowError(context->OwnerHandle, L"%s", L"Unable to edit the memory region because it is too large.");
                 return TRUE;
             }
 
@@ -226,7 +224,7 @@ INT_PTR CALLBACK PhpMemoryEditorDlgProc(
 
             if (!context->Buffer)
             {
-                PhShowError(context->OwnerHandle, L"Unable to allocate memory for the buffer.");
+                PhShowError(context->OwnerHandle, L"%s", L"Unable to allocate memory for the buffer.");
                 return TRUE;
             }
 
@@ -430,7 +428,7 @@ INT_PTR CALLBACK PhpMemoryEditorDlgProc(
                         {
                             if (offset >= context->RegionSize)
                             {
-                                PhShowError(hwndDlg, L"The offset is too large.");
+                                PhShowError(hwndDlg, L"%s", L"The offset is too large.");
                                 continue;
                             }
 

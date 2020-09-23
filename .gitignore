@@ -97,9 +97,9 @@ plugins/OnlineChecks/virustotal.h
 !tools/CustomBuildTool/bin/
 tools/CustomBuildTool/bin/Debug*/
 tools/CustomBuildTool/bin/Release*/*
-!tools/CustomBuildTool/bin/Release/CustomBuildTool.exe
-!tools/CustomBuildTool/bin/Release/CustomBuildTool.exe.config
-!tools/CustomBuildTool/bin/Release/CustomBuildTool.pdb
+!tools/CustomBuildTool/bin/Release/*.exe
+!tools/CustomBuildTool/bin/Release/*.dll
+!tools/CustomBuildTool/bin/Release/*.pdb
 
 !tools/CustomSignTool/bin/
 tools/CustomSignTool/bin/Debug*/

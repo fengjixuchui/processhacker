@@ -149,6 +149,12 @@
     <ClInclude Include="include\dia2.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="include\metahost.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="include\mscoree.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="peview.rc">

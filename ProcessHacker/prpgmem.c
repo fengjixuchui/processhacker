@@ -500,17 +500,15 @@ INT_PTR CALLBACK PhpProcessMemoryDlgProc(
                     {
                         PPH_SHOW_MEMORY_EDITOR showMemoryEditor;
 
-                        showMemoryEditor = PhAllocate(sizeof(PH_SHOW_MEMORY_EDITOR));
-                        memset(showMemoryEditor, 0, sizeof(PH_SHOW_MEMORY_EDITOR));
-
+                        showMemoryEditor = PhAllocateZero(sizeof(PH_SHOW_MEMORY_EDITOR));
                         showMemoryEditor->OwnerWindow = hwndDlg;
                         showMemoryEditor->ProcessId = processItem->ProcessId;
                         showMemoryEditor->BaseAddress = memoryNode->MemoryItem->BaseAddress;
                         showMemoryEditor->RegionSize = memoryNode->MemoryItem->RegionSize;
-                        showMemoryEditor->SelectOffset = -1;
+                        showMemoryEditor->SelectOffset = ULONG_MAX;
                         showMemoryEditor->SelectLength = 0;
 
-                        ProcessHacker_ShowMemoryEditor(PhMainWndHandle, showMemoryEditor);
+                        ProcessHacker_ShowMemoryEditor(showMemoryEditor);
                     }
                 }
                 break;
@@ -784,15 +782,16 @@ INT_PTR CALLBACK PhpProcessMemoryDlgProc(
 
                                     if (memoryItem)
                                     {
-                                        PPH_SHOW_MEMORY_EDITOR showMemoryEditor = PhAllocate(sizeof(PH_SHOW_MEMORY_EDITOR));
+                                        PPH_SHOW_MEMORY_EDITOR showMemoryEditor;
 
-                                        memset(showMemoryEditor, 0, sizeof(PH_SHOW_MEMORY_EDITOR));
+                                        showMemoryEditor = PhAllocateZero(sizeof(PH_SHOW_MEMORY_EDITOR));
                                         showMemoryEditor->ProcessId = processItem->ProcessId;
                                         showMemoryEditor->BaseAddress = memoryItem->BaseAddress;
                                         showMemoryEditor->RegionSize = memoryItem->RegionSize;
                                         showMemoryEditor->SelectOffset = (ULONG)((ULONG_PTR)address - (ULONG_PTR)memoryItem->BaseAddress);
                                         showMemoryEditor->SelectLength = 0;
-                                        ProcessHacker_ShowMemoryEditor(PhMainWndHandle, showMemoryEditor);
+
+                                        ProcessHacker_ShowMemoryEditor(showMemoryEditor);
                                         break;
                                     }
                                     else

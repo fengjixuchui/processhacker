@@ -212,7 +212,25 @@ INT WINAPI wWinMain(
     }
 
 #ifndef DEBUG
-    if (WindowsVersion >= WINDOWS_10)
+    // Starting with Win10 20H1 processes with uiAccess=true override the ProcessExtensionPointDisablePolicy
+    // blocking hook DLL injection and inject the window hook anyway. This override doesn't check if the process has also enabled 
+    // the MicrosoftSignedOnly policy causing an infinite loop of APC messages and hook DLL loading/unloading
+    // inside user32!_ClientLoadLibrary while calling the GetMessageW API for the window message loop.
+    // ...
+    // 1) GetMessageW processes the APC message for loading the window hook DLL with user32!_ClientLoadLibrary.
+    // 2) user32!_ClientLoadLibrary calls LoadLibraryEx with the DLL path.
+    // 3) LoadLibraryEx returns an error loading the window hook DLL because we enabled MicrosoftSignedOnly.
+    // 4) SetWindowsHookEx ignores the result and re-queues the APC message from step 1.
+    // ...
+    // Mouse/keyboard/window messages passing through GetMessageW generate large volumes of calls to LoadLibraryEx
+    // making the application unresponsive as each message processes the APC message and loads/unloads the hook DLL...
+    // So don't use MicrosoftSignedOnly on versions of Windows where Process Hacker becomes unresponsive
+    // because a third party application called SetWindowsHookEx on the machine. (dmex)
+    if (
+        WindowsVersion >= WINDOWS_10 &&
+        WindowsVersion != WINDOWS_10_20H1 &&
+        WindowsVersion != WINDOWS_10_20H2
+        )
     {
         PROCESS_MITIGATION_POLICY_INFORMATION policyInfo;
 
@@ -396,7 +414,7 @@ VOID PhUnregisterMessageLoopFilter(
 
     indexOfFilter = PhFindItemList(FilterList, FilterEntry);
 
-    if (indexOfFilter != -1)
+    if (indexOfFilter != ULONG_MAX)
         PhRemoveItemList(FilterList, indexOfFilter);
 
     PhFree(FilterEntry);
@@ -609,6 +627,60 @@ BOOLEAN PhInitializeRestartPolicy(
 #include <symprv.h>
 #include <minidumpapiset.h>
 
+VOID PhpCreateUnhandledExceptionCrashDump(
+    _In_ PEXCEPTION_POINTERS ExceptionInfo
+    )
+{
+    static PH_STRINGREF dumpFilePath = PH_STRINGREF_INIT(L"%USERPROFILE%\\Desktop\\");
+    HANDLE fileHandle;
+    PPH_STRING dumpDirectory;
+    PPH_STRING dumpFileName;
+    WCHAR alphastring[16] = L"";
+
+    dumpDirectory = PhExpandEnvironmentStrings(&dumpFilePath);
+    PhGenerateRandomAlphaString(alphastring, RTL_NUMBER_OF(alphastring));
+
+    dumpFileName = PhConcatStrings(
+        4,
+        PhGetString(dumpDirectory),
+        L"\\ProcessHacker_",
+        alphastring,
+        L"_DumpFile.dmp"
+        );
+
+    if (NT_SUCCESS(PhCreateFileWin32(
+        &fileHandle,
+        dumpFileName->Buffer,
+        FILE_GENERIC_WRITE,
+        FILE_ATTRIBUTE_NORMAL,
+        FILE_SHARE_READ | FILE_SHARE_DELETE,
+        FILE_OVERWRITE_IF,
+        FILE_NON_DIRECTORY_FILE | FILE_SYNCHRONOUS_IO_NONALERT
+        )))
+    {
+        MINIDUMP_EXCEPTION_INFORMATION exceptionInfo;
+
+        exceptionInfo.ThreadId = HandleToUlong(NtCurrentThreadId());
+        exceptionInfo.ExceptionPointers = ExceptionInfo;
+        exceptionInfo.ClientPointers = FALSE;
+
+        PhWriteMiniDumpProcess(
+            NtCurrentProcess(),
+            NtCurrentProcessId(),
+            fileHandle,
+            MiniDumpNormal,
+            &exceptionInfo,
+            NULL,
+            NULL
+            );
+
+        NtClose(fileHandle);
+    }
+
+    PhDereferenceObject(dumpFileName);
+    PhDereferenceObject(dumpDirectory);
+}
+
 ULONG CALLBACK PhpUnhandledExceptionCallback(
     _In_ PEXCEPTION_POINTERS ExceptionInfo
     )
@@ -616,8 +688,6 @@ ULONG CALLBACK PhpUnhandledExceptionCallback(
     PPH_STRING errorMessage;
     INT result;
     PPH_STRING message;
-    TASKDIALOGCONFIG config = { sizeof(TASKDIALOGCONFIG) };
-    TASKDIALOG_BUTTON buttons[2];
 
     if (NT_NTWIN32(ExceptionInfo->ExceptionRecord->ExceptionCode))
         errorMessage = PhGetStatusMessage(0, WIN32_FROM_NTSTATUS(ExceptionInfo->ExceptionRecord->ExceptionCode));
@@ -625,102 +695,75 @@ ULONG CALLBACK PhpUnhandledExceptionCallback(
         errorMessage = PhGetStatusMessage(ExceptionInfo->ExceptionRecord->ExceptionCode, 0);
 
     message = PhFormatString(
-        L"Error code: 0x%08X (%s)",
+        L"0x%08X (%s)",
         ExceptionInfo->ExceptionRecord->ExceptionCode,
         PhGetStringOrEmpty(errorMessage)
         );
 
-    config.dwFlags = TDF_ALLOW_DIALOG_CANCELLATION;
-    config.dwCommonButtons = TDCBF_CLOSE_BUTTON;
-    config.pszWindowTitle = PhApplicationName;
-    config.pszMainIcon = TD_ERROR_ICON;
-    config.pszMainInstruction = L"Process Hacker has crashed :(";
-    config.pszContent = message->Buffer;
-
-    buttons[0].nButtonID = IDYES;
-    buttons[0].pszButtonText = L"Minidump";
-    buttons[1].nButtonID = IDRETRY;
-    buttons[1].pszButtonText = L"Restart";
-
-    config.cButtons = RTL_NUMBER_OF(buttons);
-    config.pButtons = buttons;
-    config.nDefaultButton = IDCLOSE;
-
-    if (TaskDialogIndirect(
-        &config,
-        &result,
-        NULL,
-        NULL
-        ) == S_OK)
+    if (TaskDialogIndirect)
     {
-        switch (result)
+        TASKDIALOGCONFIG config = { sizeof(TASKDIALOGCONFIG) };
+        TASKDIALOG_BUTTON buttons[2];
+
+        buttons[0].nButtonID = IDYES;
+        buttons[0].pszButtonText = L"Minidump";
+        buttons[1].nButtonID = IDRETRY;
+        buttons[1].pszButtonText = L"Restart";
+
+        config.dwFlags = TDF_ALLOW_DIALOG_CANCELLATION;
+        config.dwCommonButtons = TDCBF_CLOSE_BUTTON;
+        config.pszWindowTitle = PhApplicationName;
+        config.pszMainIcon = TD_ERROR_ICON;
+        config.pszMainInstruction = L"Process Hacker has crashed :(";
+        config.pszContent = PhGetStringOrEmpty(message);
+        config.cButtons = RTL_NUMBER_OF(buttons);
+        config.pButtons = buttons;
+        config.nDefaultButton = IDCLOSE;
+
+        if (SUCCEEDED(TaskDialogIndirect(&config, &result, NULL, NULL)))
         {
-        case IDRETRY:
+            switch (result)
             {
-                PhShellProcessHacker(
-                    NULL,
-                    NULL,
-                    SW_SHOW,
-                    0,
-                    PH_SHELL_APP_PROPAGATE_PARAMETERS | PH_SHELL_APP_PROPAGATE_PARAMETERS_IGNORE_VISIBILITY,
-                    0,
-                    NULL
-                    );
-            }
-            break;
-        case IDYES:
-            {
-                static PH_STRINGREF dumpFilePath = PH_STRINGREF_INIT(L"%USERPROFILE%\\Desktop\\");
-                HANDLE fileHandle;
-                PPH_STRING dumpDirectory;
-                PPH_STRING dumpFileName;
-                WCHAR alphastring[16] = L"";
-
-                dumpDirectory = PhExpandEnvironmentStrings(&dumpFilePath);
-                PhGenerateRandomAlphaString(alphastring, RTL_NUMBER_OF(alphastring));
-
-                dumpFileName = PhConcatStrings(
-                    4,
-                    PhGetString(dumpDirectory),
-                    L"\\ProcessHacker_",
-                    alphastring,
-                    L"_DumpFile.dmp"
-                    );
-
-                if (NT_SUCCESS(PhCreateFileWin32(
-                    &fileHandle,
-                    dumpFileName->Buffer,
-                    FILE_GENERIC_WRITE,
-                    FILE_ATTRIBUTE_NORMAL,
-                    FILE_SHARE_READ | FILE_SHARE_DELETE,
-                    FILE_OVERWRITE_IF,
-                    FILE_NON_DIRECTORY_FILE | FILE_SYNCHRONOUS_IO_NONALERT
-                    )))
+            case IDRETRY:
                 {
-                    MINIDUMP_EXCEPTION_INFORMATION exceptionInfo;
-
-                    exceptionInfo.ThreadId = HandleToUlong(NtCurrentThreadId());
-                    exceptionInfo.ExceptionPointers = ExceptionInfo;
-                    exceptionInfo.ClientPointers = FALSE;
-
-                    PhWriteMiniDumpProcess(
-                        NtCurrentProcess(),
-                        NtCurrentProcessId(),
-                        fileHandle,
-                        MiniDumpNormal,
-                        &exceptionInfo,
+                    PhShellProcessHacker(
                         NULL,
+                        NULL,
+                        SW_SHOW,
+                        0,
+                        PH_SHELL_APP_PROPAGATE_PARAMETERS | PH_SHELL_APP_PROPAGATE_PARAMETERS_IGNORE_VISIBILITY,
+                        0,
                         NULL
                         );
-
-                    NtClose(fileHandle);
                 }
-
-                PhDereferenceObject(dumpFileName);
-                PhDereferenceObject(dumpDirectory);
+                break;
+            case IDYES:
+                PhpCreateUnhandledExceptionCrashDump(ExceptionInfo); 
+                break;
             }
-            break;
         }
+    }
+    else
+    {
+        if (PhShowMessage(
+            NULL,
+            MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2,
+            L"Process Hacker has crashed :(\r\n\r\n%s",
+            L"Do you want to create a minidump on the Desktop?"
+            ) == IDYES)
+        {
+            PhpCreateUnhandledExceptionCrashDump(ExceptionInfo);
+        }
+
+        PhShellProcessHacker(
+            NULL,
+            NULL,
+            SW_SHOW,
+            0,
+            PH_SHELL_APP_PROPAGATE_PARAMETERS | PH_SHELL_APP_PROPAGATE_PARAMETERS_IGNORE_VISIBILITY,
+            0,
+            NULL
+            );
     }
 
     PhExitApplication(ExceptionInfo->ExceptionRecord->ExceptionCode);
@@ -987,6 +1030,7 @@ VOID PhpShowKphError(
         PhShowError2(
             NULL,
             Message,
+            L"%s",
             L"You will be unable to use more advanced features, view details about system processes or terminate malicious software."
             );
     }
@@ -1003,7 +1047,7 @@ VOID PhpShowKphError(
                 L"\r\n\r\n",
                 L"You will be unable to use more advanced features, view details about system processes or terminate malicious software."
                 );
-            PhShowError2(NULL, Message, statusMessage->Buffer);
+            PhShowError2(NULL, Message, L"%s", statusMessage->Buffer);
             PhDereferenceObject(statusMessage);
             PhDereferenceObject(errorMessage);
         }
@@ -1011,7 +1055,8 @@ VOID PhpShowKphError(
         {
             PhShowError2(
                 NULL, 
-                Message, 
+                Message,
+                L"%s",
                 L"You will be unable to use more advanced features, view details about system processes or terminate malicious software."
                 );
         }

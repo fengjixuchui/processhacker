@@ -496,6 +496,8 @@ INT_PTR CALLBACK CustomizeToolbarDialogProc(
     {
     case WM_INITDIALOG:
         {
+            PhSetApplicationWindowIcon(hwndDlg);
+
             PhCenterWindow(hwndDlg, PhMainWndHandle);
 
             context->DialogHandle = hwndDlg;
@@ -549,7 +551,7 @@ INT_PTR CALLBACK CustomizeToolbarDialogProc(
                 DeleteBrush(context->BrushPushed);
 
             if (context->FontHandle)
-                DeleteBrush(context->FontHandle);
+                DeleteFont(context->FontHandle);
         }
         break;
     case WM_NCDESTROY:

@@ -2358,6 +2358,17 @@ typedef struct _PH_LIST
     PVOID *Items;
 } PH_LIST, *PPH_LIST;
 
+
+FORCEINLINE
+PVOID
+PhItemList(
+    _In_ PPH_LIST List,
+    _In_ ULONG Index
+    )
+{
+    return List->Items[Index];
+}
+
 PHLIBAPI
 PPH_LIST
 NTAPI
@@ -2875,13 +2886,9 @@ typedef struct _PH_HASHTABLE
     ULONG NextEntry;
 } PH_HASHTABLE, *PPH_HASHTABLE;
 
-#define PH_HASHTABLE_ENTRY_SIZE(InnerSize) (UFIELD_OFFSET(PH_HASHTABLE_ENTRY, Body) + (InnerSize))
-#define PH_HASHTABLE_GET_ENTRY(Hashtable, Index) \
-    ((PPH_HASHTABLE_ENTRY)PTR_ADD_OFFSET((Hashtable)->Entries, \
-    PH_HASHTABLE_ENTRY_SIZE((Hashtable)->EntrySize) * (Index)))
-#define PH_HASHTABLE_GET_ENTRY_INDEX(Hashtable, Entry) \
-    ((ULONG)(PTR_ADD_OFFSET(Entry, -(Hashtable)->Entries) / \
-    PH_HASHTABLE_ENTRY_SIZE((Hashtable)->EntrySize)))
+#define PH_HASHTABLE_ENTRY_SIZE(InnerSize) (UInt32Add32To64(UFIELD_OFFSET(PH_HASHTABLE_ENTRY, Body), (InnerSize)))
+#define PH_HASHTABLE_GET_ENTRY(Hashtable, Index) ((PPH_HASHTABLE_ENTRY)PTR_ADD_OFFSET((Hashtable)->Entries, UInt32Mul32To64(PH_HASHTABLE_ENTRY_SIZE((Hashtable)->EntrySize), (Index))))
+#define PH_HASHTABLE_GET_ENTRY_INDEX(Hashtable, Entry) ((ULONG)(PTR_ADD_OFFSET(Entry, -(Hashtable)->Entries) / PH_HASHTABLE_ENTRY_SIZE((Hashtable)->EntrySize)))
 
 PHLIBAPI
 PPH_HASHTABLE

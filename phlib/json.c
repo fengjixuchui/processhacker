@@ -24,7 +24,9 @@
 #include <phbasesup.h>
 #include <phutil.h>
 
-#include "jsonc\json.h"
+#include "..\tools\thirdparty\jsonc\json.h"
+#include "..\tools\thirdparty\mxml\mxml.h"
+
 #include <json.h>
 
 static json_object_ptr json_get_object(
@@ -209,7 +211,7 @@ PVOID PhGetJsonArrayIndexObject(
     return json_object_array_get_idx(Object, Index);
 }
 
-PPH_LIST PhGetJsonObjectAsArrayList(
+PVOID PhGetJsonObjectAsArrayList(
     _In_ PVOID Object
     )
 {

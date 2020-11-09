@@ -24,34 +24,6 @@
 #include "exttools.h"
 #include "etwmon.h"
 
-ULONG NTAPI EtpEtwBufferCallback(
-    _In_ PEVENT_TRACE_LOGFILE Buffer
-    );
-
-VOID NTAPI EtpEtwEventCallback(
-    _In_ PEVENT_RECORD EventRecord
-    );
-
-NTSTATUS EtpEtwMonitorThreadStart(
-    _In_ PVOID Parameter
-    );
-
-ULONG EtpStopEtwRundownSession(
-    VOID
-    );
-
-ULONG NTAPI EtpRundownEtwBufferCallback(
-    _In_ PEVENT_TRACE_LOGFILE Buffer
-    );
-
-VOID NTAPI EtpRundownEtwEventCallback(
-    _In_ PEVENT_RECORD EventRecord
-    );
-
-NTSTATUS EtpRundownEtwMonitorThreadStart(
-    _In_ PVOID Parameter
-    );
-
 static GUID ProcessHackerGuid = { 0x1288c53b, 0xaf35, 0x481b, { 0xb6, 0xb5, 0xa0, 0x5c, 0x39, 0x87, 0x2e, 0xd } };
 static GUID SystemTraceControlGuid_I = { 0x9e814aad, 0x3204, 0x11d2, { 0x9a, 0x82, 0x00, 0x60, 0x08, 0xa8, 0x69, 0x39 } };
 static GUID KernelRundownGuid_I = { 0x3b9c9951, 0x3480, 0x4220, { 0x93, 0x77, 0x9c, 0x8e, 0x51, 0x84, 0xf5, 0xcd } };
@@ -64,22 +36,42 @@ static GUID UdpIpGuid_I = { 0xbf3a50c5, 0xa9c9, 0x4988, { 0xa0, 0x05, 0x2d, 0xf0
 
 BOOLEAN EtEtwEnabled = FALSE;
 ULONG EtEtwStatus = ERROR_SUCCESS;
+ULONG EtEtwRundownStatus = ERROR_SUCCESS;
 static UNICODE_STRING EtpSharedKernelLoggerName = RTL_CONSTANT_STRING(KERNEL_LOGGER_NAME);
 static UNICODE_STRING EtpPrivateKernelLoggerName = RTL_CONSTANT_STRING(L"PhEtKernelLogger");
-static TRACEHANDLE EtpSessionHandle = 0;
+static TRACEHANDLE EtSessionHandle = INVALID_PROCESSTRACE_HANDLE;
 static PUNICODE_STRING EtpActualKernelLoggerName = NULL;
 static PGUID EtpActualSessionGuid = NULL;
 static PEVENT_TRACE_PROPERTIES EtpTraceProperties = NULL;
 static BOOLEAN EtpEtwActive = FALSE;
-static BOOLEAN EtpStartedSession = FALSE;
+static BOOLEAN EtpEtwRundownActive = FALSE;
 static BOOLEAN EtpEtwExiting = FALSE;
 
 // ETW rundown layer
 
 static UNICODE_STRING EtpRundownLoggerName = RTL_CONSTANT_STRING(L"PhEtRundownLogger");
-static TRACEHANDLE EtpRundownSessionHandle = 0;
+static TRACEHANDLE EtpRundownSessionHandle = INVALID_PROCESSTRACE_HANDLE;
 static PEVENT_TRACE_PROPERTIES EtpRundownTraceProperties = NULL;
 static BOOLEAN EtpRundownActive = FALSE;
+
+ULONG NTAPI EtEtwBufferCallback(
+    _In_ PEVENT_TRACE_LOGFILE Buffer
+    );
+VOID NTAPI EtEtwEventCallback(
+    _In_ PEVENT_RECORD EventRecord
+    );
+NTSTATUS EtEtwMonitorThreadStart(
+    _In_ PVOID Parameter
+    );
+ULONG EtStopEtwSession(
+    VOID
+    );
+ULONG EtStopEtwRundownSession(
+    VOID
+    );
+NTSTATUS EtRundownEtwMonitorThreadStart(
+    _In_ PVOID Parameter
+    );
 
 VOID EtEtwMonitorInitialization(
     VOID
@@ -87,12 +79,53 @@ VOID EtEtwMonitorInitialization(
 {
     if (PhGetOwnTokenAttributes().Elevated && PhGetIntegerSetting(SETTING_NAME_ENABLE_ETW_MONITOR))
     {
-        EtStartEtwSession();
+        ULONG bufferSize;
 
-        if (EtEtwEnabled)
+        if (WindowsVersion >= WINDOWS_8)
         {
-            PhCreateThread2(EtpEtwMonitorThreadStart, NULL);
+            EtpActualKernelLoggerName = &EtpPrivateKernelLoggerName;
+            EtpActualSessionGuid = &ProcessHackerGuid;
         }
+        else
+        {
+            EtpActualKernelLoggerName = &EtpSharedKernelLoggerName;
+            EtpActualSessionGuid = &SystemTraceControlGuid_I;
+        }
+
+        bufferSize = sizeof(EVENT_TRACE_PROPERTIES) + EtpActualKernelLoggerName->Length + sizeof(UNICODE_NULL);
+        EtpTraceProperties = PhAllocate(bufferSize);
+        memset(EtpTraceProperties, 0, sizeof(EVENT_TRACE_PROPERTIES));
+
+        EtpTraceProperties->Wnode.BufferSize = bufferSize;
+        EtpTraceProperties->Wnode.Guid = *EtpActualSessionGuid;
+        EtpTraceProperties->Wnode.ClientContext = 1;
+        EtpTraceProperties->Wnode.Flags = WNODE_FLAG_TRACED_GUID;
+        EtpTraceProperties->MinimumBuffers = 1;
+        EtpTraceProperties->LogFileMode = EVENT_TRACE_REAL_TIME_MODE;
+        EtpTraceProperties->FlushTimer = 1;
+        EtpTraceProperties->EnableFlags = EVENT_TRACE_FLAG_DISK_IO | EVENT_TRACE_FLAG_DISK_FILE_IO | EVENT_TRACE_FLAG_NETWORK_TCPIP;
+        EtpTraceProperties->LoggerNameOffset = sizeof(EVENT_TRACE_PROPERTIES);
+
+        if (WindowsVersion >= WINDOWS_8)
+            EtpTraceProperties->LogFileMode |= EVENT_TRACE_SYSTEM_LOGGER_MODE;
+
+        bufferSize = sizeof(EVENT_TRACE_PROPERTIES) + EtpRundownLoggerName.Length + sizeof(UNICODE_NULL);
+        EtpRundownTraceProperties = PhAllocate(bufferSize);
+        memset(EtpRundownTraceProperties, 0, sizeof(EVENT_TRACE_PROPERTIES));
+
+        EtpRundownTraceProperties->Wnode.BufferSize = bufferSize;
+        EtpRundownTraceProperties->Wnode.ClientContext = 1;
+        EtpRundownTraceProperties->Wnode.Flags = WNODE_FLAG_TRACED_GUID;
+        EtpRundownTraceProperties->MinimumBuffers = 1;
+        EtpRundownTraceProperties->LogFileMode = EVENT_TRACE_REAL_TIME_MODE;
+        EtpRundownTraceProperties->FlushTimer = 1;
+        EtpRundownTraceProperties->LoggerNameOffset = sizeof(EVENT_TRACE_PROPERTIES);
+
+        EtpRundownActive = TRUE;
+        EtEtwEnabled = TRUE;
+
+        PhCreateThread2(EtRundownEtwMonitorThreadStart, NULL);
+        PhCreateThread2(EtEtwMonitorThreadStart, NULL);
     }
 }
 
@@ -100,122 +133,136 @@ VOID EtEtwMonitorUninitialization(
     VOID
     )
 {
-    if (EtEtwEnabled)
+    if (PhGetOwnTokenAttributes().Elevated && PhGetIntegerSetting(SETTING_NAME_ENABLE_ETW_MONITOR))
     {
         EtpEtwExiting = TRUE;
-        EtStopEtwSession();
-    }
 
-    if (EtpRundownActive)
-    {
-        EtpStopEtwRundownSession();
+        if (EtpEtwActive)
+        {
+            EtStopEtwSession();
+        }
+
+        if (EtpEtwRundownActive)
+        {
+            EtStopEtwRundownSession();
+        }
     }
+}
+
+TRACEHANDLE EtOpenEtwTrace(
+    VOID
+    )
+{
+    EVENT_TRACE_LOGFILE logFile;
+
+    if (!(EtpTraceProperties && EtpActualKernelLoggerName))
+        return INVALID_PROCESSTRACE_HANDLE;
+
+    memset(&logFile, 0, sizeof(EVENT_TRACE_LOGFILE));
+    logFile.LoggerName = EtpActualKernelLoggerName->Buffer;
+    logFile.ProcessTraceMode = PROCESS_TRACE_MODE_REAL_TIME | PROCESS_TRACE_MODE_EVENT_RECORD;
+    logFile.BufferCallback = EtEtwBufferCallback;
+    logFile.EventRecordCallback = EtEtwEventCallback;
+
+    return OpenTrace(&logFile);
 }
 
 VOID EtStartEtwSession(
     VOID
     )
 {
-    ULONG bufferSize;
+    TRACEHANDLE traceHandle = INVALID_PROCESSTRACE_HANDLE;
 
-    if (WindowsVersion >= WINDOWS_8)
-    {
-        EtpActualKernelLoggerName = &EtpPrivateKernelLoggerName;
-        EtpActualSessionGuid = &ProcessHackerGuid;
-    }
-    else
-    {
-        EtpActualKernelLoggerName = &EtpSharedKernelLoggerName;
-        EtpActualSessionGuid = &SystemTraceControlGuid_I;
-    }
-
-    bufferSize = sizeof(EVENT_TRACE_PROPERTIES) + EtpActualKernelLoggerName->Length + sizeof(WCHAR);
-
-    if (!EtpTraceProperties)
-        EtpTraceProperties = PhAllocate(bufferSize);
-
-    memset(EtpTraceProperties, 0, sizeof(EVENT_TRACE_PROPERTIES));
-
-    EtpTraceProperties->Wnode.BufferSize = bufferSize;
-    EtpTraceProperties->Wnode.Guid = *EtpActualSessionGuid;
-    EtpTraceProperties->Wnode.ClientContext = 1;
-    EtpTraceProperties->Wnode.Flags = WNODE_FLAG_TRACED_GUID;
-    EtpTraceProperties->MinimumBuffers = 1;
-    EtpTraceProperties->LogFileMode = EVENT_TRACE_REAL_TIME_MODE;
-    EtpTraceProperties->FlushTimer = 1;
-    EtpTraceProperties->EnableFlags = EVENT_TRACE_FLAG_DISK_IO | EVENT_TRACE_FLAG_DISK_FILE_IO | EVENT_TRACE_FLAG_NETWORK_TCPIP;
     EtpTraceProperties->LogFileNameOffset = 0;
-    EtpTraceProperties->LoggerNameOffset = sizeof(EVENT_TRACE_PROPERTIES);
+    EtEtwStatus = StartTrace(
+        &traceHandle,
+        EtpActualKernelLoggerName->Buffer,
+        EtpTraceProperties
+        );
 
-    if (WindowsVersion >= WINDOWS_8)
-        EtpTraceProperties->LogFileMode |= EVENT_TRACE_SYSTEM_LOGGER_MODE;
+    if (EtEtwStatus == ERROR_ALREADY_EXISTS)
+    {
+        // Session already exists, so use that. Get the existing session handle.
+        EtpTraceProperties->LogFileNameOffset = 0;
+        EtEtwStatus = ControlTrace(
+            0,
+            EtpActualKernelLoggerName->Buffer,
+            EtpTraceProperties,
+            EVENT_TRACE_CONTROL_QUERY
+            );
 
-    EtEtwStatus = StartTrace(&EtpSessionHandle, EtpActualKernelLoggerName->Buffer, EtpTraceProperties);
+        if (EtEtwStatus == ERROR_SUCCESS)
+        {
+            traceHandle = EtpTraceProperties->Wnode.HistoricalContext;
+        }
+    }
 
     if (EtEtwStatus == ERROR_SUCCESS)
     {
-        EtEtwEnabled = TRUE;
+        EtSessionHandle = traceHandle;
         EtpEtwActive = TRUE;
-        EtpStartedSession = TRUE;
-    }
-    else if (EtEtwStatus == ERROR_ALREADY_EXISTS)
-    {
-        EtEtwEnabled = TRUE;
-        EtpEtwActive = TRUE;
-        EtpStartedSession = FALSE;
-        // The session already exists.
-        //EtEtwStatus = ControlTrace(0, EtpActualKernelLoggerName->Buffer, EtpTraceProperties, EVENT_TRACE_CONTROL_UPDATE);
     }
     else
     {
         EtpEtwActive = FALSE;
-        EtpStartedSession = FALSE;
+        EtSessionHandle = INVALID_PROCESSTRACE_HANDLE;
     }
 }
 
-ULONG EtpControlEtwSession(
-    _In_ ULONG ControlCode
-    )
-{
-    // If we have a session handle, we use that instead of the logger name.
-
-    EtpTraceProperties->LogFileNameOffset = 0; // make sure it is 0, otherwise ControlTrace crashes
-
-    return ControlTrace(
-        EtpStartedSession ? EtpSessionHandle : 0,
-        EtpStartedSession ? NULL : EtpActualKernelLoggerName->Buffer,
-        EtpTraceProperties,
-        ControlCode
-        );
-}
-
-VOID EtStopEtwSession(
+ULONG EtStopEtwSession(
     VOID
     )
 {
-    if (EtEtwEnabled)
-        EtpControlEtwSession(EVENT_TRACE_CONTROL_STOP);
+    if (!(EtpTraceProperties && EtpActualKernelLoggerName))
+        return 0;
+
+    EtpTraceProperties->LogFileNameOffset = 0;
+    return ControlTrace(
+        EtSessionHandle,
+        EtpActualKernelLoggerName->Buffer,
+        EtpTraceProperties,
+        EVENT_TRACE_CONTROL_STOP
+        );
+}
+
+ULONG EtEtwControlEtwSession(
+    _In_ ULONG ControlCode
+    )
+{
+    if (!(EtpTraceProperties && EtpActualKernelLoggerName))
+        return 0;
+
+    // If we have a session handle, we use that instead of the logger name. (wj32)
+    EtpTraceProperties->LogFileNameOffset = 0;
+    return ControlTrace(
+        EtSessionHandle,
+        EtpActualKernelLoggerName->Buffer,
+        EtpTraceProperties,
+        ControlCode
+        );
 }
 
 VOID EtFlushEtwSession(
     VOID
     )
 {
-    if (EtEtwEnabled)
-        EtpControlEtwSession(EVENT_TRACE_CONTROL_FLUSH);
+    EtEtwControlEtwSession(EVENT_TRACE_CONTROL_FLUSH);
 }
 
-ULONG NTAPI EtpEtwBufferCallback(
+ULONG NTAPI EtEtwBufferCallback(
     _In_ PEVENT_TRACE_LOGFILE Buffer
     )
 {
     return !EtpEtwExiting;
 }
 
-VOID NTAPI EtpEtwEventCallback(
+VOID NTAPI EtEtwEventCallback(
     _In_ PEVENT_RECORD EventRecord
     )
 {
+    if (EtpEtwExiting)
+        return;
+
     if (IsEqualGUID(&EventRecord->EventHeader.ProviderId, &DiskIoGuid_I))
     {
         // DiskIo
@@ -284,7 +331,8 @@ VOID NTAPI EtpEtwEventCallback(
         case 35: // FileDelete
             fileEvent.Type = EtEtwFileDeleteType;
             break;
-        default:
+        case 36: // FileRundown
+            fileEvent.Type = EtEtwFileRundownType;
             break;
         }
 
@@ -399,27 +447,19 @@ VOID NTAPI EtpEtwEventCallback(
     }
 }
 
-NTSTATUS EtpEtwMonitorThreadStart(
+NTSTATUS EtEtwMonitorThreadStart(
     _In_ PVOID Parameter
     )
 {
-    ULONG result;
-    EVENT_TRACE_LOGFILE logFile;
-    TRACEHANDLE traceHandle;
-
-    memset(&logFile, 0, sizeof(EVENT_TRACE_LOGFILE));
-    logFile.LoggerName = EtpActualKernelLoggerName->Buffer;
-    logFile.ProcessTraceMode = PROCESS_TRACE_MODE_REAL_TIME | PROCESS_TRACE_MODE_EVENT_RECORD;
-    logFile.BufferCallback = EtpEtwBufferCallback;
-    logFile.EventRecordCallback = EtpEtwEventCallback;
-
-    while (TRUE)
+    while (!EtpEtwExiting)
     {
-        result = ERROR_SUCCESS;
-        traceHandle = OpenTrace(&logFile);
+        ULONG result = ERROR_SUCCESS;
+        TRACEHANDLE traceHandle = EtOpenEtwTrace();
 
         if (traceHandle != INVALID_PROCESSTRACE_HANDLE)
         {
+            EtpEtwActive = TRUE;
+
             while (!EtpEtwExiting && (result = ProcessTrace(&traceHandle, 1, NULL, NULL)) == ERROR_SUCCESS)
                 NOTHING;
 
@@ -438,148 +478,136 @@ NTSTATUS EtpEtwMonitorThreadStart(
         // Some error occurred, so sleep for a while before trying again.
         // Don't sleep if we just successfully started a session, though.
         if (!EtpEtwActive)
-            PhDelayExecution(250);
+            PhDelayExecution(1000);
     }
 
     return STATUS_SUCCESS;
 }
 
-ULONG EtStartEtwRundown(
+VOID EtStartEtwRundownSession(
     VOID
     )
 {
-    ULONG result;
-    ULONG bufferSize;
+    TRACEHANDLE traceHandle = INVALID_PROCESSTRACE_HANDLE;
 
-    bufferSize = sizeof(EVENT_TRACE_PROPERTIES) + EtpRundownLoggerName.Length + sizeof(WCHAR);
-
-    if (!EtpRundownTraceProperties)
-        EtpRundownTraceProperties = PhAllocate(bufferSize);
-
-    memset(EtpRundownTraceProperties, 0, sizeof(EVENT_TRACE_PROPERTIES));
-
-    EtpRundownTraceProperties->Wnode.BufferSize = bufferSize;
-    EtpRundownTraceProperties->Wnode.ClientContext = 1;
-    EtpRundownTraceProperties->Wnode.Flags = WNODE_FLAG_TRACED_GUID;
-    EtpRundownTraceProperties->MinimumBuffers = 1;
-    EtpRundownTraceProperties->LogFileMode = EVENT_TRACE_REAL_TIME_MODE;
-    EtpRundownTraceProperties->FlushTimer = 1;
     EtpRundownTraceProperties->LogFileNameOffset = 0;
-    EtpRundownTraceProperties->LoggerNameOffset = sizeof(EVENT_TRACE_PROPERTIES);
+    EtEtwRundownStatus = StartTrace(
+        &traceHandle,
+        EtpRundownLoggerName.Buffer,
+        EtpRundownTraceProperties
+        );
 
-    result = StartTrace(&EtpRundownSessionHandle, EtpRundownLoggerName.Buffer, EtpRundownTraceProperties);
-
-    if (result == ERROR_ALREADY_EXISTS)
+    if (EtEtwRundownStatus == ERROR_ALREADY_EXISTS)
     {
-        EtpStopEtwRundownSession();
-        // ControlTrace (called from EtpStopEtwRundownSession) screws up the structure.
-        EtpRundownTraceProperties->Wnode.BufferSize = bufferSize;
+        EtStopEtwRundownSession();
+
         EtpRundownTraceProperties->LogFileNameOffset = 0;
-        EtpRundownTraceProperties->LoggerNameOffset = sizeof(EVENT_TRACE_PROPERTIES);
-        result = StartTrace(&EtpRundownSessionHandle, EtpRundownLoggerName.Buffer, EtpRundownTraceProperties);
+        EtEtwRundownStatus = StartTrace(
+            &traceHandle,
+            EtpRundownLoggerName.Buffer,
+            EtpRundownTraceProperties
+            );
     }
 
-    if (result != ERROR_SUCCESS)
-        return result;
-
-    result = EnableTraceEx(&KernelRundownGuid_I, NULL, EtpRundownSessionHandle, 1, 0, 0x10, 0, 0, NULL);
-
-    if (result != ERROR_SUCCESS)
+    if (EtEtwRundownStatus == ERROR_SUCCESS)
     {
-        EtpStopEtwRundownSession();
-        return result;
+        ENABLE_TRACE_PARAMETERS enableParameters;
+
+        memset(&enableParameters, 0, sizeof(ENABLE_TRACE_PARAMETERS));
+        enableParameters.Version = ENABLE_TRACE_PARAMETERS_VERSION_2;
+
+        EtEtwRundownStatus = EnableTraceEx2(
+            traceHandle,
+            &KernelRundownGuid_I,
+            EVENT_CONTROL_CODE_ENABLE_PROVIDER,
+            TRACE_LEVEL_VERBOSE,
+            0x10,
+            0,
+            0,
+            &enableParameters
+            );
     }
 
-    EtpRundownActive = TRUE;
-    PhCreateThread2(EtpRundownEtwMonitorThreadStart, NULL);
-
-    return result;
+    if (EtEtwRundownStatus == ERROR_SUCCESS)
+    {
+        EtpRundownSessionHandle = traceHandle;
+        EtpEtwRundownActive = TRUE;
+    }
+    else
+    {
+        EtpEtwRundownActive = FALSE;
+        EtpRundownSessionHandle = INVALID_PROCESSTRACE_HANDLE;
+    }
 }
 
-ULONG EtpStopEtwRundownSession(
+TRACEHANDLE EtOpenEtwRundownTrace(
     VOID
-    )
-{
-    EtpRundownTraceProperties->LogFileNameOffset = 0;
-    return ControlTrace(0, EtpRundownLoggerName.Buffer, EtpRundownTraceProperties, EVENT_TRACE_CONTROL_STOP);
-}
-
-ULONG NTAPI EtpRundownEtwBufferCallback(
-    _In_ PEVENT_TRACE_LOGFILE Buffer
-    )
-{
-    return !EtpEtwExiting;
-}
-
-VOID NTAPI EtpRundownEtwEventCallback(
-    _In_ PEVENT_RECORD EventRecord
-    )
-{
-    // TODO: Find a way to call CloseTrace when the enumeration finishes so we can
-    // stop the trace cleanly.
-
-    if (IsEqualGUID(&EventRecord->EventHeader.ProviderId, &FileIoGuid_I))
-    {
-        // FileIo
-
-        ET_ETW_FILE_EVENT fileEvent;
-
-        memset(&fileEvent, 0, sizeof(ET_ETW_FILE_EVENT));
-        fileEvent.Type = ULONG_MAX;
-
-        switch (EventRecord->EventHeader.EventDescriptor.Opcode)
-        {
-        case 36: // FileRundown
-            fileEvent.Type = EtEtwFileRundownType;
-            break;
-        default:
-            break;
-        }
-
-        if (fileEvent.Type != ULONG_MAX)
-        {
-            if (PhIsExecutingInWow64())
-            {
-                FileIo_Name_Wow64 *dataWow64 = EventRecord->UserData;
-
-                fileEvent.FileObject = (PVOID)dataWow64->FileObject;
-                PhInitializeStringRef(&fileEvent.FileName, dataWow64->FileName);
-            }
-            else
-            {
-                FileIo_Name *data = EventRecord->UserData;
-
-                fileEvent.FileObject = (PVOID)data->FileObject;
-                PhInitializeStringRef(&fileEvent.FileName, data->FileName);
-            }
-
-            EtDiskProcessFileEvent(&fileEvent);
-        }
-    }
-}
-
-NTSTATUS EtpRundownEtwMonitorThreadStart(
-    _In_ PVOID Parameter
     )
 {
     EVENT_TRACE_LOGFILE logFile;
-    TRACEHANDLE traceHandle;
 
     memset(&logFile, 0, sizeof(EVENT_TRACE_LOGFILE));
     logFile.LoggerName = EtpRundownLoggerName.Buffer;
     logFile.ProcessTraceMode = PROCESS_TRACE_MODE_REAL_TIME | PROCESS_TRACE_MODE_EVENT_RECORD;
-    logFile.BufferCallback = EtpRundownEtwBufferCallback;
-    logFile.EventRecordCallback = EtpRundownEtwEventCallback;
-    logFile.Context = &traceHandle;
+    logFile.BufferCallback = EtEtwBufferCallback;
+    logFile.EventRecordCallback = EtEtwEventCallback;
 
-    traceHandle = OpenTrace(&logFile);
+    return OpenTrace(&logFile);
+}
+
+ULONG EtStopEtwRundownSession(
+    VOID
+    )
+{
+    if (!EtpRundownTraceProperties)
+        return ERROR_SUCCESS;
+
+    EtpRundownTraceProperties->LogFileNameOffset = 0;
+    return ControlTrace(
+        0,
+        EtpRundownLoggerName.Buffer,
+        EtpRundownTraceProperties,
+        EVENT_TRACE_CONTROL_STOP
+        );
+}
+
+ULONG EtFlushEtwRundownSession(
+    VOID
+    )
+{
+    if (!EtpRundownTraceProperties)
+        return ERROR_SUCCESS;
+
+    EtpRundownTraceProperties->LogFileNameOffset = 0;
+    return ControlTrace(
+        0,
+        EtpRundownLoggerName.Buffer,
+        EtpRundownTraceProperties,
+        EVENT_TRACE_CONTROL_FLUSH
+        );
+}
+
+// Note: Open/close the rundown provider since we're using a realtime session and
+// the provider only enumerates open files at the end of the session. This works
+// because once the rundown completes we don't restart the trace. (dmex)
+NTSTATUS EtRundownEtwMonitorThreadStart(
+    _In_ PVOID Parameter
+    )
+{
+    TRACEHANDLE traceHandle;
+
+    EtStopEtwRundownSession();
+    EtStartEtwRundownSession();
+
+    traceHandle = EtOpenEtwRundownTrace();
 
     if (traceHandle != INVALID_PROCESSTRACE_HANDLE)
     {
+        EtpEtwRundownActive = TRUE;
+
         ProcessTrace(&traceHandle, 1, NULL, NULL);
 
-        if (traceHandle != INVALID_PROCESSTRACE_HANDLE)
-            CloseTrace(traceHandle);
+        CloseTrace(traceHandle);
     }
 
     return STATUS_SUCCESS;

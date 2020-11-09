@@ -157,6 +157,7 @@ VOID NTAPI MainWindowShowingCallback(
     )
 {
     EtInitializeDiskTab();
+    EtInitializeFirewallTab();
     EtRegisterToolbarGraphs();
 }
 
@@ -697,7 +698,9 @@ LOGICAL DllMain(
                 { ScalableIntegerPairSettingType, SETTING_NAME_WSWATCH_WINDOW_SIZE, L"@96|325,266" },
                 { StringSettingType, SETTING_NAME_WSWATCH_COLUMNS, L"" },
                 { StringSettingType, SETTING_NAME_TRAYICON_GUIDS, L"" },
-                { IntegerSettingType, SETTING_NAME_ENABLE_FAHRENHEIT, L"0" }
+                { IntegerSettingType, SETTING_NAME_ENABLE_FAHRENHEIT, L"0" },
+                { StringSettingType, SETTING_NAME_FW_TREE_LIST_COLUMNS, L"" },
+                { IntegerPairSettingType, SETTING_NAME_FW_TREE_LIST_SORT, L"12,2" },
             };
 
             PluginInstance = PhRegisterPlugin(PLUGIN_NAME, Instance, &info);
@@ -707,7 +710,7 @@ LOGICAL DllMain(
 
             info->DisplayName = L"Extended Tools";
             info->Author = L"dmex, wj32";
-            info->Description = L"Extended functionality for Windows 7 and above, including ETW monitoring, GPU monitoring and a Disk tab.";
+            info->Description = L"Extended functionality for Windows 7 and above, including ETW, GPU, Disk and Firewall monitoring tabs.";
             info->Url = L"https://wj32.org/processhacker/forums/viewtopic.php?t=1114";
 
             PhRegisterCallback(

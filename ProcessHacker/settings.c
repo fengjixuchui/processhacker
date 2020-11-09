@@ -56,6 +56,7 @@ VOID PhAddDefaultSettings(
     PhpAddIntegerSetting(L"EnableWindowText", L"1");
     PhpAddIntegerSetting(L"EnableThemeSupport", L"0");
     PhpAddIntegerSetting(L"EnableTooltipSupport", L"1");
+    PhpAddIntegerSetting(L"EnableSafeDefaultPlugins", L"1");
     PhpAddIntegerSetting(L"EnableSecurityAdvancedDialog", L"1");
     PhpAddIntegerSetting(L"EnableLinuxSubsystemSupport", L"0");
     PhpAddIntegerSetting(L"EnableVersionSupport", L"1");
@@ -173,7 +174,7 @@ VOID PhAddDefaultSettings(
     PhpAddStringSetting(L"ServiceTreeListColumns", L"");
     PhpAddStringSetting(L"ServiceTreeListSort", L"0,1"); // 0, AscendingSortOrder
     PhpAddIntegerPairSetting(L"SessionShadowHotkey", L"106,2"); // VK_MULTIPLY,KBDCTRL
-    PhpAddIntegerSetting(L"ShowPluginLoadErrors", L"0");
+    PhpAddIntegerSetting(L"ShowPluginLoadErrors", L"1");
     PhpAddIntegerSetting(L"ShowCommitInSummary", L"1");
     PhpAddIntegerSetting(L"ShowCpuBelow001", L"0");
     PhpAddIntegerSetting(L"ShowHexId", L"0");

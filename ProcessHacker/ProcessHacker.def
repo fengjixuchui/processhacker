@@ -242,6 +242,7 @@ EXPORTS
     PhDeleteFileWin32
     PhDetermineDosPathNameType
     PhDoesFileExistsWin32
+    PhDoesFileExists
     PhDisconnectNamedPipe
     PhEnumerateKey
     PhEnumerateValueKey
@@ -273,6 +274,9 @@ EXPORTS
     PhGetOwnTokenAttributes
     PhGetDllHandle
     PhGetModuleProcAddress
+    PhGetNamedPipeClientComputerName
+    PhGetNamedPipeClientProcessId
+    PhGetNamedPipeServerProcessId
     PhGetProcedureAddress
     PhGetProcedureAddressRemote
     PhGetProcessCommandLine
@@ -752,4 +756,5 @@ EXPORTS
     PhHttpSocketSetCredentials
     PhHttpDnsQuery
     PhDnsQuery
+    PhDnsQuery2
     PhDnsFree

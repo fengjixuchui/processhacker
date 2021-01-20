@@ -78,8 +78,6 @@ static INT OldTabIndex = 0;
 
 static HMENU SubMenuHandles[5];
 static PPH_EMENU SubMenuObjects[5];
-
-static ULONG SelectedRunAsMode = ULONG_MAX;
 static ULONG SelectedUserSessionId = ULONG_MAX;
 
 BOOLEAN PhMainWndInitialization(
@@ -579,6 +577,15 @@ static NTSTATUS PhpOpenServiceControlManager(
     return PhGetLastWin32ErrorAsNtStatus();
 }
 
+static NTSTATUS PhpOpenSecurityDummyHandle(
+    _Inout_ PHANDLE Handle,
+    _In_ ACCESS_MASK DesiredAccess,
+    _In_opt_ PVOID Context
+    )
+{
+    return STATUS_SUCCESS;
+}
+
 VOID PhMwpOnCommand(
     _In_ HWND WindowHandle,
     _In_ ULONG Id
@@ -914,6 +921,42 @@ VOID PhMwpOnCommand(
                 L"Service Control Manager",
                 L"SCManager",
                 PhpOpenServiceControlManager,
+                NULL,
+                NULL
+                );
+        }
+        break;
+    case ID_TOOLS_PWR_PERMISSIONS:
+        {
+            PhEditSecurity(
+                NULL,
+                L"Current Power Scheme",
+                L"PowerDefault",
+                PhpOpenSecurityDummyHandle,
+                NULL,
+                NULL
+                );
+        }
+        break;
+    case ID_TOOLS_RDP_PERMISSIONS:
+        {
+            PhEditSecurity(
+                NULL,
+                L"Terminal Server Listener",
+                L"RdpDefault",
+                PhpOpenSecurityDummyHandle,
+                NULL,
+                NULL
+                );
+        }
+        break;
+    case ID_TOOLS_WMI_PERMISSIONS:
+        {
+            PhEditSecurity(
+                NULL,
+                L"WMI Root Namespace",
+                L"WmiDefault",
+                PhpOpenSecurityDummyHandle,
                 NULL,
                 NULL
                 );
@@ -2009,6 +2052,36 @@ BOOLEAN PhMwpExecuteComputerCommand(
     return FALSE;
 }
 
+BOOL PhMwpIsWindowOverlapped(
+    _In_ HWND WindowHandle
+    )
+{
+    RECT rectThisWindow = { 0 };
+    RECT rectOtherWindow = { 0 };
+    RECT rectIntersection = { 0 };
+    HWND windowHandle = WindowHandle;
+
+    if (!GetWindowRect(WindowHandle, &rectThisWindow))
+        return FALSE;
+
+    while ((windowHandle = GetWindow(windowHandle, GW_HWNDPREV)) && windowHandle != WindowHandle)
+    {
+        if (!(PhGetWindowStyle(windowHandle) & WS_VISIBLE))
+            continue;
+
+        if (!GetWindowRect(windowHandle, &rectOtherWindow))
+            continue;
+
+        if (!(PhGetWindowStyleEx(windowHandle) & WS_EX_TOPMOST) &&
+            IntersectRect(&rectIntersection, &rectThisWindow, &rectOtherWindow))
+        {
+            return TRUE;
+        }
+    }
+
+    return FALSE;
+}
+
 VOID PhMwpActivateWindow(
     _In_ HWND WindowHandle,
     _In_ BOOLEAN Toggle
@@ -2021,7 +2094,7 @@ VOID PhMwpActivateWindow(
     }
     else if (IsWindowVisible(WindowHandle))
     {
-        if (Toggle)
+        if (Toggle && !PhMwpIsWindowOverlapped(WindowHandle))
             ShowWindow(WindowHandle, SW_HIDE);
         else
             SetForegroundWindow(WindowHandle);
@@ -2124,7 +2197,10 @@ PPH_EMENU PhpCreateToolsMenu(
     PhInsertEMenuItem(ToolsMenu, PhCreateEMenuSeparator(), ULONG_MAX);
 
     menuItem = PhCreateEMenuItem(0, 0, L"&Permissions", NULL, NULL);
+    PhInsertEMenuItem(menuItem, PhCreateEMenuItem(0, ID_TOOLS_PWR_PERMISSIONS, L"Current Power Scheme", NULL, NULL), ULONG_MAX);
     PhInsertEMenuItem(menuItem, PhCreateEMenuItem(0, ID_TOOLS_SCM_PERMISSIONS, L"Service Control Manager", NULL, NULL), ULONG_MAX);
+    PhInsertEMenuItem(menuItem, PhCreateEMenuItem(0, ID_TOOLS_RDP_PERMISSIONS, L"Terminal Server Listener", NULL, NULL), ULONG_MAX);
+    PhInsertEMenuItem(menuItem, PhCreateEMenuItem(0, ID_TOOLS_WMI_PERMISSIONS, L"WMI Root Namespace", NULL, NULL), ULONG_MAX);
     PhInsertEMenuItem(ToolsMenu, menuItem, ULONG_MAX);
 
     return ToolsMenu;
